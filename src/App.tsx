@@ -614,6 +614,7 @@ export default function App() {
             const nome = prod.product_name_pt || prod.product_name || '';
             const marca = prod.brands || '';
             const qtd = prod.quantity || '';
+            const tipo = prod.generic_name_pt || prod.generic_name || '';
             const foto = prod.image_front_url || prod.image_url || prod.image_front_small_url || prod.image_small_url || '';
 
             let categoria = 'Mercearia / Grãos & Cereais';
@@ -630,13 +631,21 @@ export default function App() {
               }
             }
 
-            let nomeCompleto = nome;
+            // Build detailed supermarket title: Tipo + Marca + Nome + Quantidade
+            let partes: string[] = [];
+            if (tipo && !nome.toLowerCase().includes(tipo.toLowerCase())) {
+              partes.push(tipo);
+            }
             if (marca && !nome.toLowerCase().includes(marca.toLowerCase())) {
-              nomeCompleto = `${marca} ${nome}`.trim();
+              partes.push(marca);
             }
-            if (qtd && !nomeCompleto.toLowerCase().includes(qtd.toLowerCase())) {
-              nomeCompleto = `${nomeCompleto} ${qtd}`.trim();
+            partes.push(nome);
+            if (qtd && !nome.toLowerCase().includes(qtd.toLowerCase())) {
+              partes.push(qtd);
             }
+
+            let nomeCompleto = partes.filter(Boolean).join(' ').trim();
+            if (!nomeCompleto) nomeCompleto = `${marca} ${nome} ${qtd}`.trim();
 
             return {
               nomeProduto: nomeCompleto || nome,

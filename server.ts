@@ -107,14 +107,16 @@ async function startServer() {
       }
 
       let nomeProduto = "";
+      let marca = "";
       let categoria = "";
       let fotoUrl = "";
       let fonte = "";
 
-      // Step 1: Query Open Food Facts Brazil database for exact real EAN & real product image
+      // First query Open Food Facts to grab raw metadata if available
+      let rawOffData: any = null;
       try {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 3500);
+        const timeoutId = setTimeout(() => controller.abort(), 2500);
 
         const offRes = await fetch(`https://br.openfoodfacts.org/api/v2/product/${cleanEan}.json`, {
           signal: controller.signal,
@@ -125,57 +127,19 @@ async function startServer() {
         clearTimeout(timeoutId);
 
         if (offRes.ok) {
-          const offData = await offRes.json();
-          if (offData && offData.status === 1 && offData.product) {
-            const prod = offData.product;
-            const nome = prod.product_name_pt || prod.product_name || "";
-            const marca = prod.brands || "";
-            const qtd = prod.quantity || "";
-
-            if (nome) {
-              const partes = [marca, nome, qtd].filter(Boolean);
-              nomeProduto = partes.join(" - ");
-              if (nomeProduto.length > 80) nomeProduto = `${marca} ${nome}`.trim();
-            }
-
-            // Real product image from Open Food Facts
-            fotoUrl = prod.image_front_url || prod.image_url || prod.image_front_small_url || prod.image_small_url || "";
-
-            // Category mapping
-            if (prod.categories_tags && Array.isArray(prod.categories_tags)) {
-              const catsStr = prod.categories_tags.join(" ").toLowerCase();
-              if (catsStr.includes("beverage") || catsStr.includes("drink") || catsStr.includes("bebida") || catsStr.includes("juice") || catsStr.includes("soda")) {
-                categoria = "Bebidas Não Alcoólicas";
-              } else if (catsStr.includes("dairy") || catsStr.includes("milk") || catsStr.includes("leite") || catsStr.includes("cheese") || catsStr.includes("cream")) {
-                categoria = "Laticínios & Frios";
-              } else if (catsStr.includes("snack") || catsStr.includes("biscuit") || catsStr.includes("cookie") || catsStr.includes("biscoito")) {
-                categoria = "Biscoitos & Snacks";
-              } else if (catsStr.includes("cleaning") || catsStr.includes("detergent") || catsStr.includes("limpeza")) {
-                categoria = "Limpeza Doméstica";
-              } else {
-                categoria = "Mercearia / Grãos & Cereais";
-              }
-            } else {
-              categoria = "Mercearia / Grãos & Cereais";
-            }
-
-            return res.json({
-              nomeProduto: nomeProduto || "",
-              marca: marca || "",
-              categoria: categoria,
-              fotoUrl: fotoUrl || "",
-              fonte: "Open Food Facts",
-            });
+          const offJson = await offRes.json();
+          if (offJson && offJson.status === 1 && offJson.product) {
+            rawOffData = offJson.product;
           }
         }
       } catch (e) {
-        console.warn("Open Food Facts timeout or fetch error:", e);
+        console.warn("Open Food Facts fetch error/timeout:", e);
       }
 
-      // Step 2: If not found in Open Food Facts, use Gemini with Google Search Grounding to search the web for the exact EAN
-      if (!nomeProduto) {
-        const apiKey = process.env.GEMINI_API_KEY;
-        if (apiKey) {
+      // Step 2: Use Gemini with Google Search to identify exact full supermarket name & clean studio image
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (apiKey) {
+        try {
           const ai = new GoogleGenAI({
             apiKey,
             httpOptions: {
@@ -185,64 +149,88 @@ async function startServer() {
             },
           });
 
-          // Perform Google Search query via Gemini
+          const contextData = rawOffData
+            ? `Dados brutos encontrados no banco: Nome='${rawOffData.product_name || rawOffData.product_name_pt}', Marca='${rawOffData.brands}', Peso='${rawOffData.quantity}', Tipo='${rawOffData.generic_name_pt || rawOffData.generic_name}'.`
+            : "";
+
           const response = await ai.models.generateContent({
             model: "gemini-3.6-flash",
-            contents: `Faça uma pesquisa no Google pelo código de barras EAN ${cleanEan} do Brasil (como no Cosmos Bluesoft, supermercados ou Google Shopping).
-Descubra qual é o PRODUTO REAL exato vendido no Brasil com este código de barras ${cleanEan}.
-Retorne OBRIGATORIAMENTE em formato JSON válido com as chaves:
-- "nomeProduto": Nome exato completo do produto com marca e peso/volume (Ex: "Creme de Leite Leve Nestlé 200g", "Leite UHT Integral Piracanjuba 1L", "Achocolatado em Pó Nescau 370g").
-- "categoria": A categoria do produto (Ex: "Laticínios & Frios", "Bebidas Não Alcoólicas", "Mercearia / Grãos & Cereais", "Limpeza Doméstica", "Higiene & Perfumaria", "Biscoitos & Snacks").
-- "fotoUrl": URL de imagem do produto se encontrada na busca ou vazia.`,
+            contents: `Pesquise no Google pelo código de barras EAN/GTIN ${cleanEan} comercializado no Brasil. ${contextData}
+Identifique as informações completas e padronizadas para cadastro de supermercado:
+1. 'nomeProduto': Nome completo, ultra detalhado e estruturado no padrão de catálogo profissional de supermercado (Tipo do Produto + Marca + Linha/Sabor + Embalagem/Peso). Exemplo: 'Achocolatado em Pó Nestlé Nescau 2.0 Lata 370g', 'Leite UHT Integral Piracanjuba Caixinha 1L', 'Creme de Leite Leve Nestlé Caixinha 200g', 'Refrigerante Coca-Cola Original Garrafa PET 2L'.
+2. 'marca': Nome exato da marca (Ex: 'Nestlé', 'Piracanjuba', 'Coca-Cola').
+3. 'categoria': Categoria de supermercado adequada (Ex: 'Bebidas Não Alcoólicas', 'Laticínios & Frios', 'Mercearia / Grãos & Cereais', 'Limpeza Doméstica', 'Biscoitos & Snacks', 'Higiene & Perfumaria').
+4. 'fotoUrl': URL de uma imagem de alta qualidade do produto com fundo branco de estúdio (packshot oficial/supermercado com fundo limpo e transparente ou branco). Se não encontrar foto oficial com fundo branco, retorne vazia.
+
+Retorne OBRIGATORIAMENTE em JSON válido com as chaves: "nomeProduto", "marca", "categoria", "fotoUrl".`,
             config: {
               tools: [{ googleSearch: {} }],
             },
           });
 
           const rawText = response.text || "";
-          // Extract JSON block from response text
           const jsonMatch = rawText.match(/\{[\s\S]*\}/);
           if (jsonMatch) {
             try {
               const parsed = JSON.parse(jsonMatch[0]);
               if (parsed.nomeProduto && !parsed.nomeProduto.toLowerCase().includes("desconhecido")) {
                 nomeProduto = parsed.nomeProduto;
+                marca = parsed.marca || rawOffData?.brands || "";
                 categoria = parsed.categoria || "Mercearia / Grãos & Cereais";
-                if (parsed.fotoUrl && parsed.fotoUrl.startsWith("http")) {
+                if (parsed.fotoUrl && (parsed.fotoUrl.startsWith("http://") || parsed.fotoUrl.startsWith("https://"))) {
                   fotoUrl = parsed.fotoUrl;
                 }
-                fonte = "Google Search (Gemini)";
+                fonte = "Gemini + Google Search";
               }
             } catch (jsonErr) {
-              console.warn("Erro ao parsear JSON do Gemini Search:", jsonErr);
+              console.warn("Erro ao parsear JSON do Gemini:", jsonErr);
             }
           }
+        } catch (gemErr) {
+          console.warn("Erro ao consultar Gemini:", gemErr);
         }
       }
 
-      // Fallback for image if no direct package photo URL was returned:
+      // Step 3: Fallback assembling from Open Food Facts if Gemini search missed
+      if (!nomeProduto && rawOffData) {
+        const prod = rawOffData;
+        const rawNome = prod.product_name_pt || prod.product_name || "";
+        const rawMarca = prod.brands || "";
+        const rawQtd = prod.quantity || "";
+        const rawTipo = prod.generic_name_pt || prod.generic_name || "";
+
+        marca = rawMarca;
+        let partes = [];
+        if (rawTipo && !rawNome.toLowerCase().includes(rawTipo.toLowerCase())) partes.push(rawTipo);
+        if (rawMarca && !rawNome.toLowerCase().includes(rawMarca.toLowerCase())) partes.push(rawMarca);
+        partes.push(rawNome);
+        if (rawQtd && !rawNome.toLowerCase().includes(rawQtd.toLowerCase())) partes.push(rawQtd);
+
+        nomeProduto = partes.filter(Boolean).join(" ");
+        fotoUrl = prod.image_front_url || prod.image_url || "";
+        fonte = "Open Food Facts";
+      }
+
+      // Step 4: Fallback for clean studio image fallback if photo is missing or broken
       if (!fotoUrl && nomeProduto) {
         const nomeLower = nomeProduto.toLowerCase();
-        if (nomeLower.includes("leite") || nomeLower.includes("creme de leite")) {
-          fotoUrl = "https://images.unsplash.com/photo-1550583724-b2692b85b150?auto=format&fit=crop&w=600&q=80"; // Milk / Cream product photo
+        if (nomeLower.includes("nescau") || nomeLower.includes("achocolatado")) {
+          fotoUrl = "https://images.unsplash.com/photo-1584735935682-2f2b69dff9d2?auto=format&fit=crop&w=600&q=80";
+        } else if (nomeLower.includes("leite") || nomeLower.includes("creme de leite")) {
+          fotoUrl = "https://images.unsplash.com/photo-1550583724-b2692b85b150?auto=format&fit=crop&w=600&q=80";
         } else if (nomeLower.includes("café") || nomeLower.includes("cafe")) {
-          fotoUrl = "https://images.unsplash.com/photo-1559056199-641a0ac8b55e?auto=format&fit=crop&w=600&q=80"; // Coffee
+          fotoUrl = "https://images.unsplash.com/photo-1559056199-641a0ac8b55e?auto=format&fit=crop&w=600&q=80";
         } else if (nomeLower.includes("refrigerante") || nomeLower.includes("coca") || nomeLower.includes("guaraná") || nomeLower.includes("suco")) {
-          fotoUrl = "https://images.unsplash.com/photo-1622483767028-3f66f32aef97?auto=format&fit=crop&w=600&q=80"; // Beverage
-        } else if (nomeLower.includes("arroz") || nomeLower.includes("feijão") || nomeLower.includes("macarrão") || nomeLower.includes("massa")) {
-          fotoUrl = "https://images.unsplash.com/photo-1586201375761-83865001e31c?auto=format&fit=crop&w=600&q=80"; // Grains / Grocery
-        } else if (nomeLower.includes("detergente") || nomeLower.includes("sabão") || nomeLower.includes("amaciante") || nomeLower.includes("limpeza")) {
-          fotoUrl = "https://images.unsplash.com/photo-1585832770485-e68a5fc88280?auto=format&fit=crop&w=600&q=80"; // Cleaning
-        } else if (nomeLower.includes("biscoito") || nomeLower.includes("bolacha") || nomeLower.includes("chocolate")) {
-          fotoUrl = "https://images.unsplash.com/photo-1558961363-fa8fdf82db35?auto=format&fit=crop&w=600&q=80"; // Snacks / Biscuits
+          fotoUrl = "https://images.unsplash.com/photo-1622483767028-3f66f32aef97?auto=format&fit=crop&w=600&q=80";
         } else {
-          fotoUrl = "https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=600&q=80"; // Supermarket generic
+          fotoUrl = "https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=600&q=80";
         }
       }
 
       return res.json({
         nomeProduto: nomeProduto || "",
-        categoria: categoria || "",
+        marca: marca || "",
+        categoria: categoria || "Mercearia / Grãos & Cereais",
         fotoUrl: fotoUrl || "",
         fonte: fonte || "Geral",
       });
