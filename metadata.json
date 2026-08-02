@@ -1,0 +1,6 @@
+{
+  "name": "Estoque Mobile Multi-Supermercado",
+  "description": "Aplicativo mobile e web completo de gestão de estoque para supermercados com leitor de código de barras, alertas de validade e sincronização em tempo real.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
