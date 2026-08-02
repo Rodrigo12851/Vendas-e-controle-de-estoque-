@@ -24,13 +24,81 @@ interface ItemEstoque {
   foto?: string;
 }
 
+export interface PermissoesLoja {
+  caixa: boolean;             // 🛒 PDV & Registro de Vendas
+  estoque: boolean;           // 📦 Cadastro & Gestão de Estoque
+  usuarios: boolean;          // 👥 Gestão de Operadores de Caixa & Equipe
+  relatorios: boolean;        // 📊 Relatórios Financeiros & Vendas
+  ocr_ia: boolean;            // 🤖 Consulta Inteligente OCR / IA
+  etiquetas: boolean;         // 🏷️ Impressão de Etiquetas
+  alertas: boolean;           // 🔔 Alertas de Validade
+  baixa_estoque: boolean;     // 🗑️ Baixa Manual & Ajuste de Estoque
+}
+
+export interface PermissoesOperador {
+  vender: boolean;             // 🛒 Realizar Vendas no Caixa
+  dar_desconto: boolean;       // 💲 Conceder Desconto
+  alterar_preco: boolean;      // ✏️ Alterar Preço Unitário de Venda
+  cadastrar_produtos: boolean; // 📦 Cadastrar/Editar Produtos
+  baixa_estoque: boolean;      // 🗑️ Dar Baixa Manual em Estoque
+  ver_relatorios: boolean;     // 📊 Ver Faturamento & Relatórios
+  gerenciar_equipe: boolean;   // 👥 Gerenciar Outros Funcionários
+  imprimir_etiquetas: boolean; // 🏷️ Imprimir Etiquetas
+}
+
+export interface OperadorCaixa {
+  id: string;
+  lojaId: string;
+  nome: string;
+  cargo: 'Operador de Caixa' | 'Supervisor' | 'Administrador';
+  cpfOuUsuario: string;
+  pinSenha: string;
+  permissoes: PermissoesOperador;
+  ativo: boolean;
+  dataCadastro?: string;
+}
+
 interface Supermercado {
   id: string;
   nome: string;
   cnpj: string;
   senha: string;
   dataCadastro?: string;
+  permissoesLoja?: PermissoesLoja;
 }
+
+export const PERMISSOES_LOJA_PADRAO: PermissoesLoja = {
+  caixa: true,
+  estoque: true,
+  usuarios: true,
+  relatorios: true,
+  ocr_ia: true,
+  etiquetas: true,
+  alertas: true,
+  baixa_estoque: true,
+};
+
+export const PERMISSOES_CAIXA_PADRAO: PermissoesOperador = {
+  vender: true,
+  dar_desconto: false,
+  alterar_preco: false,
+  cadastrar_produtos: false,
+  baixa_estoque: false,
+  ver_relatorios: false,
+  gerenciar_equipe: false,
+  imprimir_etiquetas: true,
+};
+
+export const PERMISSOES_ADMIN_PADRAO: PermissoesOperador = {
+  vender: true,
+  dar_desconto: true,
+  alterar_preco: true,
+  cadastrar_produtos: true,
+  baixa_estoque: true,
+  ver_relatorios: true,
+  gerenciar_equipe: true,
+  imprimir_etiquetas: true,
+};
 
 const LISTA_CATEGORIAS = [
   'Mercearia / Grãos & Cereais',
@@ -143,8 +211,63 @@ export default function App() {
   const [regLojaNome, setRegLojaNome] = useState<string>('');
   const [regLojaCnpj, setRegLojaCnpj] = useState<string>('');
   const [regLojaSenha, setRegLojaSenha] = useState<string>('');
+  const [regLojaPermissoes, setRegLojaPermissoes] = useState<PermissoesLoja>(PERMISSOES_LOJA_PADRAO);
   const [senhaVisivel, setSenhaVisivel] = useState<boolean>(false);
   const [msgRegLoja, setMsgRegLoja] = useState<React.ReactNode>('');
+
+  // Active User Profile & Session State
+  const [perfilAtivo, setPerfilAtivo] = useState<'dona_app' | 'admin_loja' | 'caixa'>(() => {
+    return (localStorage.getItem('perfilAtivoTipo') as any) || 'dona_app';
+  });
+  const [operadorAtivoId, setOperadorAtivoId] = useState<string | null>(() => {
+    return localStorage.getItem('operadorAtivoId') || null;
+  });
+
+  // Operators / Cashiers List (Per Store)
+  const [listaOperadores, setListaOperadores] = useState<OperadorCaixa[]>(() => {
+    const storeId = localStorage.getItem('supermercadoAtualId') || 'loja_matriz_01';
+    const salvo = localStorage.getItem(`operadores_caixa_${storeId}`);
+    if (salvo) {
+      try { return JSON.parse(salvo); } catch (e) {}
+    }
+    return [
+      {
+        id: 'op_padrao_01',
+        lojaId: storeId,
+        nome: 'João Silva (Operador Caixa)',
+        cargo: 'Operador de Caixa',
+        cpfOuUsuario: 'caixa01',
+        pinSenha: '123',
+        permissoes: PERMISSOES_CAIXA_PADRAO,
+        ativo: true,
+        dataCadastro: new Date().toLocaleDateString('pt-BR'),
+      },
+      {
+        id: 'op_padrao_02',
+        lojaId: storeId,
+        nome: 'Maria Souza (Supervisora)',
+        cargo: 'Supervisor',
+        cpfOuUsuario: 'supervisor',
+        pinSenha: '123',
+        permissoes: PERMISSOES_ADMIN_PADRAO,
+        ativo: true,
+        dataCadastro: new Date().toLocaleDateString('pt-BR'),
+      },
+    ];
+  });
+
+  // Operator Modal & Form States
+  const [modalOperadoresVisivel, setModalOperadoresVisivel] = useState<boolean>(false);
+  const [opEditandoId, setOpEditandoId] = useState<string | null>(null);
+  const [regOpNome, setRegOpNome] = useState<string>('');
+  const [regOpCpf, setRegOpCpf] = useState<string>('');
+  const [regOpSenha, setRegOpSenha] = useState<string>('');
+  const [regOpCargo, setRegOpCargo] = useState<'Operador de Caixa' | 'Supervisor' | 'Administrador'>('Operador de Caixa');
+  const [regOpPermissoes, setRegOpPermissoes] = useState<PermissoesOperador>(PERMISSOES_CAIXA_PADRAO);
+  const [msgRegOp, setMsgRegOp] = useState<React.ReactNode>('');
+
+  // Restricted Access Warning Popup
+  const [avisoRestrito, setAvisoRestrito] = useState<string | null>(null);
 
   // Product Form
   const [codigoEditando, setCodigoEditando] = useState<{ codigo: string; validade: string; lote: string } | null>(null);
@@ -242,6 +365,7 @@ export default function App() {
     setRegLojaNome('');
     setRegLojaCnpj('');
     setRegLojaSenha('');
+    setRegLojaPermissoes(PERMISSOES_LOJA_PADRAO);
     setSenhaVisivel(false);
     setMsgRegLoja('');
     setModalSupermercadoVisivel(true);
@@ -249,6 +373,26 @@ export default function App() {
 
   const alternarVisibilidadeSenha = () => {
     setSenhaVisivel((prev) => !prev);
+  };
+
+  const alternarPermissaoLoja = (chave: keyof PermissoesLoja) => {
+    setRegLojaPermissoes((prev) => ({
+      ...prev,
+      [chave]: !prev[chave],
+    }));
+  };
+
+  const marcarTodasPermissoesLoja = (status: boolean) => {
+    setRegLojaPermissoes({
+      caixa: status,
+      estoque: status,
+      usuarios: status,
+      relatorios: status,
+      ocr_ia: status,
+      etiquetas: status,
+      alertas: status,
+      baixa_estoque: status,
+    });
   };
 
   const salvarNovoSupermercado = () => {
@@ -267,13 +411,14 @@ export default function App() {
       nome,
       cnpj,
       senha,
+      permissoesLoja: regLojaPermissoes,
       dataCadastro: new Date().toLocaleDateString('pt-BR'),
     };
 
     let novaLista = [...listaSupermercados];
     const index = novaLista.findIndex((l) => l.id === idLoja);
     if (index !== -1) {
-      novaLista[index] = { ...novaLista[index], nome, cnpj, senha };
+      novaLista[index] = { ...novaLista[index], nome, cnpj, senha, permissoesLoja: regLojaPermissoes };
     } else {
       novaLista.push(dadosLoja);
     }
@@ -291,13 +436,14 @@ export default function App() {
     const estSalvo = localStorage.getItem(`estoque_${idLoja}`);
     setEstoque(estSalvo ? JSON.parse(estSalvo) : []);
 
-    setMsgRegLoja(<span style={{ color: 'var(--sucesso)' }}>✅ Supermercado salvo e ativado com sucesso!</span>);
+    setMsgRegLoja(<span style={{ color: 'var(--sucesso)' }}>✅ Supermercado salvo com suas permissões!</span>);
     notificarSincronizacao();
 
     setLojaEditandoId(null);
     setRegLojaNome('');
     setRegLojaCnpj('');
     setRegLojaSenha('');
+    setRegLojaPermissoes(PERMISSOES_LOJA_PADRAO);
 
     setTimeout(() => {
       setMsgRegLoja('');
@@ -309,8 +455,181 @@ export default function App() {
     setRegLojaNome(loja.nome);
     setRegLojaCnpj(loja.cnpj);
     setRegLojaSenha(loja.senha || '');
+    setRegLojaPermissoes(loja.permissoesLoja || PERMISSOES_LOJA_PADRAO);
     setSenhaVisivel(true);
     setMsgRegLoja(<span style={{ color: 'var(--primario)' }}>Editando: {loja.nome}</span>);
+  };
+
+  // --- OPERATOR / CASHIER MANAGEMENT HANDLERS ---
+  const abrirModalOperadores = () => {
+    fecharMenu();
+    setOpEditandoId(null);
+    setRegOpNome('');
+    setRegOpCpf('');
+    setRegOpSenha('');
+    setRegOpCargo('Operador de Caixa');
+    setRegOpPermissoes(PERMISSOES_CAIXA_PADRAO);
+    setMsgRegOp('');
+
+    // Load operators for current active store
+    const salvo = localStorage.getItem(`operadores_caixa_${supermercadoAtual}`);
+    if (salvo) {
+      try {
+        setListaOperadores(JSON.parse(salvo));
+      } catch (e) {}
+    }
+    setModalOperadoresVisivel(true);
+  };
+
+  const fecharModalOperadores = () => {
+    setModalOperadoresVisivel(false);
+  };
+
+  const alternarPermissaoOperador = (chave: keyof PermissoesOperador) => {
+    setRegOpPermissoes((prev) => ({
+      ...prev,
+      [chave]: !prev[chave],
+    }));
+  };
+
+  const aplicarPermissoesPorCargo = (cargo: 'Operador de Caixa' | 'Supervisor' | 'Administrador') => {
+    setRegOpCargo(cargo);
+    if (cargo === 'Operador de Caixa') {
+      setRegOpPermissoes(PERMISSOES_CAIXA_PADRAO);
+    } else {
+      setRegOpPermissoes(PERMISSOES_ADMIN_PADRAO);
+    }
+  };
+
+  const salvarOperador = () => {
+    const nome = regOpNome.trim();
+    const cpf = regOpCpf.trim();
+    const pin = regOpSenha.trim();
+
+    if (!nome || !cpf) {
+      setMsgRegOp(<span style={{ color: 'var(--erro)' }}>Preencha Nome e CPF/Usuário do operador!</span>);
+      return;
+    }
+
+    const idOp = opEditandoId || 'op_' + Date.now();
+    const novoOp: OperadorCaixa = {
+      id: idOp,
+      lojaId: supermercadoAtual,
+      nome,
+      cargo: regOpCargo,
+      cpfOuUsuario: cpf,
+      pinSenha: pin || '1234',
+      permissoes: regOpPermissoes,
+      ativo: true,
+      dataCadastro: new Date().toLocaleDateString('pt-BR'),
+    };
+
+    let novaLista = [...listaOperadores];
+    const index = novaLista.findIndex((o) => o.id === idOp);
+    if (index !== -1) {
+      novaLista[index] = novoOp;
+    } else {
+      novaLista.push(novoOp);
+    }
+
+    setListaOperadores(novaLista);
+    localStorage.setItem(`operadores_caixa_${supermercadoAtual}`, JSON.stringify(novaLista));
+
+    setMsgRegOp(<span style={{ color: 'var(--sucesso)' }}>✅ Funcionário / Operador salvo com sucesso!</span>);
+    setOpEditandoId(null);
+    setRegOpNome('');
+    setRegOpCpf('');
+    setRegOpSenha('');
+    setRegOpCargo('Operador de Caixa');
+    setRegOpPermissoes(PERMISSOES_CAIXA_PADRAO);
+
+    setTimeout(() => {
+      setMsgRegOp('');
+    }, 2000);
+  };
+
+  const prepararEdicaoOperador = (op: OperadorCaixa) => {
+    setOpEditandoId(op.id);
+    setRegOpNome(op.nome);
+    setRegOpCpf(op.cpfOuUsuario);
+    setRegOpSenha(op.pinSenha);
+    setRegOpCargo(op.cargo);
+    setRegOpPermissoes(op.permissoes || PERMISSOES_CAIXA_PADRAO);
+    setMsgRegOp(<span style={{ color: 'var(--primario)' }}>Editando: {op.nome}</span>);
+  };
+
+  const alternarStatusOperador = (idOp: string) => {
+    const novaLista = listaOperadores.map((op) => {
+      if (op.id === idOp) {
+        return { ...op, ativo: !op.ativo };
+      }
+      return op;
+    });
+    setListaOperadores(novaLista);
+    localStorage.setItem(`operadores_caixa_${supermercadoAtual}`, JSON.stringify(novaLista));
+  };
+
+  const excluirOperador = (idOp: string) => {
+    if (confirm('Deseja excluir este operador de caixa/funcionário?')) {
+      const novaLista = listaOperadores.filter((op) => op.id !== idOp);
+      setListaOperadores(novaLista);
+      localStorage.setItem(`operadores_caixa_${supermercadoAtual}`, JSON.stringify(novaLista));
+    }
+  };
+
+  // Switch Active User / Session (Super Admin, Store Owner, Cashier)
+  const trocarPerfilAtivo = (tipo: 'dona_app' | 'admin_loja' | 'caixa', opId?: string) => {
+    setPerfilAtivo(tipo);
+    localStorage.setItem('perfilAtivoTipo', tipo);
+    if (tipo === 'caixa' && opId) {
+      setOperadorAtivoId(opId);
+      localStorage.setItem('operadorAtivoId', opId);
+    } else {
+      setOperadorAtivoId(null);
+      localStorage.removeItem('operadorAtivoId');
+    }
+  };
+
+  // Helper to verify permissions before triggering restricted features
+  const verificarPermissaoOuAvisar = (
+    tipoModuloLoja: keyof PermissoesLoja,
+    acaoOperador?: keyof PermissoesOperador,
+    nomeAcaoFormatado?: string
+  ): boolean => {
+    // 1. Super Admin (Dona do App) has full access
+    if (perfilAtivo === 'dona_app') return true;
+
+    // 2. Check Store Permissions (configured by Dona do App)
+    const lojaAtualConfig = listaSupermercados.find((l) => l.id === supermercadoAtual);
+    const permLoja = lojaAtualConfig?.permissoesLoja || PERMISSOES_LOJA_PADRAO;
+
+    if (!permLoja[tipoModuloLoja]) {
+      setAvisoRestrito(
+        `🔒 Acesso Bloqueado pela Dona do Aplicativo: O módulo "${nomeAcaoFormatado || tipoModuloLoja}" está desabilitado para o supermercado "${nomeSupermercadoAtivo}".`
+      );
+      return false;
+    }
+
+    // 3. Store Owner / Admin has full access to enabled store modules
+    if (perfilAtivo === 'admin_loja') return true;
+
+    // 4. Cashier / Staff Operator permissions check (configured by Store Owner)
+    if (perfilAtivo === 'caixa' && acaoOperador) {
+      const opAtual = listaOperadores.find((o) => o.id === operadorAtivoId);
+      if (!opAtual || !opAtual.ativo) {
+        setAvisoRestrito('🔒 Operador inativo ou não selecionado. Faça login com uma conta válida.');
+        return false;
+      }
+      const permOp = opAtual.permissoes || PERMISSOES_CAIXA_PADRAO;
+      if (!permOp[acaoOperador]) {
+        setAvisoRestrito(
+          `🔒 Acesso Restrito ao Operador: O funcionário "${opAtual.nome}" (${opAtual.cargo}) não tem permissão de "${nomeAcaoFormatado || acaoOperador}". Peça autorização ao Administrador do Supermercado.`
+        );
+        return false;
+      }
+    }
+
+    return true;
   };
 
   const alternarLojaAtiva = (loja: Supermercado) => {
@@ -432,12 +751,24 @@ export default function App() {
       }
 
       if (videoRef.current) {
-        codeReaderRef.current.decodeFromVideoElement(videoRef.current, (result) => {
-          if (result && !escaneou) {
-            const txt = result.getText();
-            if (txt) onDetect(txt);
+        try {
+          const decodePromise = codeReaderRef.current.decodeFromVideoElement(
+            videoRef.current,
+            (result, err) => {
+              if (result && !escaneou) {
+                const txt = result.getText();
+                if (txt) onDetect(txt);
+              }
+            }
+          );
+          if (decodePromise && typeof decodePromise.catch === 'function') {
+            decodePromise.catch(() => {
+              // Silently handle stream closure / video end without throwing
+            });
           }
-        });
+        } catch (e) {
+          // Ignore scanner initialization errors
+        }
       }
 
       // 2. Native BarcodeDetector (Hardware Accelerated if available)
@@ -1111,6 +1442,66 @@ export default function App() {
         </div>
       </header>
 
+      {/* SELETOR DE PERFIL E SESSÃO ATIVA */}
+      <div className="seletor-perfil-bar">
+        <div className="perfil-tag-ativo">
+          <span>👤 Perfil/Sessão Ativa:</span>
+          <select
+            className="select-perfil-header"
+            value={perfilAtivo === 'caixa' ? `caixa_${operadorAtivoId || ''}` : perfilAtivo}
+            onChange={(e) => {
+              const val = e.target.value;
+              if (val === 'dona_app') {
+                trocarPerfilAtivo('dona_app');
+              } else if (val === 'admin_loja') {
+                trocarPerfilAtivo('admin_loja');
+              } else if (val.startsWith('caixa_')) {
+                const opId = val.replace('caixa_', '');
+                trocarPerfilAtivo('caixa', opId);
+              }
+            }}
+          >
+            <optgroup label="👑 Super Administração">
+              <option value="dona_app">👑 Dona do Aplicativo (Acesso Total)</option>
+            </optgroup>
+            <optgroup label="🏢 Administração do Supermercado">
+              <option value="admin_loja">🏢 Dono do Supermercado / Gerente ({nomeSupermercadoAtivo})</option>
+            </optgroup>
+            {listaOperadores.length > 0 && (
+              <optgroup label="👤 Operadores de Caixa & Equipe">
+                {listaOperadores.map((op) => (
+                  <option key={op.id} value={`caixa_${op.id}`}>
+                    👤 {op.nome} ({op.cargo}) {!op.ativo ? '[INATIVO]' : ''}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+          </select>
+        </div>
+
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+          {perfilAtivo === 'dona_app' && (
+            <span style={{ color: '#0284c7', fontWeight: 600, fontSize: '0.78rem' }}>
+              ✨ Configuração Global de Lojas & Permissões
+            </span>
+          )}
+          {perfilAtivo === 'admin_loja' && (
+            <button
+              className="btn"
+              style={{ padding: '4px 8px', fontSize: '0.75rem', background: '#e0f2fe', color: '#0284c7', border: '1px solid #bae6fd', cursor: 'pointer' }}
+              onClick={abrirModalOperadores}
+            >
+              👥 Cadastrar Caixas & Permissões
+            </button>
+          )}
+          {perfilAtivo === 'caixa' && (
+            <span style={{ color: '#166534', fontWeight: 600, fontSize: '0.78rem' }}>
+              🛒 Operando Caixa
+            </span>
+          )}
+        </div>
+      </div>
+
       {/* SIDEBAR */}
       <div
         className="sidebar-overlay"
@@ -1130,15 +1521,32 @@ export default function App() {
         </div>
         <div className="sidebar-menu">
           <div className="sidebar-item" onClick={abrirModalSupermercado}>
-            🏢 Cadastrar / Gerenciar Loja
+            🏢 Cadastrar / Gerenciar Lojas (Dona do App)
           </div>
-          <div className="sidebar-item" onClick={abrirCadastro}>
+          <div className="sidebar-item" onClick={abrirModalOperadores}>
+            👥 Cadastrar Caixas & Funcionários
+          </div>
+          <div
+            className="sidebar-item"
+            onClick={() => {
+              if (verificarPermissaoOuAvisar('estoque', 'cadastrar_produtos', 'Cadastrar Produtos')) {
+                abrirCadastro();
+              }
+            }}
+          >
             ➕ Adicionar Item (Estoque)
           </div>
           <div className="sidebar-item" onClick={abrirRelatorioCatalogo}>
             🗂️ Catálogo Global
           </div>
-          <div className="sidebar-item" onClick={abrirRelatorio}>
+          <div
+            className="sidebar-item"
+            onClick={() => {
+              if (verificarPermissaoOuAvisar('relatorios', 'ver_relatorios', 'Relatórios Financeiros')) {
+                abrirRelatorio();
+              }
+            }}
+          >
             📊 Relatório de Estoque
           </div>
         </div>
@@ -1498,6 +1906,66 @@ export default function App() {
               </div>
             </div>
 
+            {/* QUADRADOS DE PERMISSÃO POR CATEGORIA PARA A DONA DO APLICATIVO */}
+            <div style={{ marginTop: '16px', marginBottom: '12px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', flexWrap: 'wrap', gap: '6px' }}>
+                <label className="rotulo-campo" style={{ fontSize: '0.88rem', fontWeight: 700, color: 'var(--texto)' }}>
+                  👑 Permissões e Módulos Habilitados para este Supermercado (Dona do Aplicativo):
+                </label>
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  <button
+                    type="button"
+                    style={{ background: '#e0f2fe', color: '#0284c7', border: 'none', padding: '4px 8px', borderRadius: '4px', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer' }}
+                    onClick={() => marcarTodasPermissoesLoja(true)}
+                  >
+                    Marcar Todos
+                  </button>
+                  <button
+                    type="button"
+                    style={{ background: '#f1f5f9', color: '#64748b', border: 'none', padding: '4px 8px', borderRadius: '4px', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer' }}
+                    onClick={() => marcarTodasPermissoesLoja(false)}
+                  >
+                    Limpar
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid-permissoes">
+                {[
+                  { key: 'caixa', icon: '🛒', title: 'PDV / Caixa', desc: 'Permite realizar vendas e registrar saídas' },
+                  { key: 'estoque', icon: '📦', title: 'Gestão de Estoque', desc: 'Permite cadastrar produtos, preços e lotes' },
+                  { key: 'usuarios', icon: '👥', title: 'Gestão de Caixas', desc: 'Permite ao supermercado cadastrar operadores' },
+                  { key: 'relatorios', icon: '📊', title: 'Relatórios Financeiros', desc: 'Acesso a faturamento e curva de vendas' },
+                  { key: 'ocr_ia', icon: '🤖', title: 'OCR / IA Validades', desc: 'Leitura de rótulos por câmera e IA' },
+                  { key: 'etiquetas', icon: '🏷️', title: 'Etiquetas & Barras', desc: 'Geração e impressão de etiquetas térmicas' },
+                  { key: 'alertas', icon: '🔔', title: 'Alertas Validade', desc: 'Notificação automática de itens vencendo' },
+                  { key: 'baixa_estoque', icon: '🗑️', title: 'Baixa de Estoque', desc: 'Ajuste manual de perdas/descarte de estoque' },
+                ].map((item) => {
+                  const marcado = regLojaPermissoes[item.key as keyof PermissoesLoja];
+                  return (
+                    <div
+                      key={item.key}
+                      className={`card-permissao ${marcado ? 'marcado' : ''}`}
+                      onClick={() => alternarPermissaoLoja(item.key as keyof PermissoesLoja)}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={marcado}
+                        onChange={() => {}}
+                      />
+                      <div className="info-permissao">
+                        <div className="titulo-permissao">
+                          <span>{item.icon}</span>
+                          <span>{item.title}</span>
+                        </div>
+                        <div className="desc-permissao">{item.desc}</div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
             <div className="grupo-botoes" style={{ marginTop: '14px' }}>
               <button className="btn btn-salvar" onClick={salvarNovoSupermercado}>
                 {lojaEditandoId ? 'Atualizar Dados e Senha' : 'Salvar e Ativar Supermercado'}
@@ -1672,6 +2140,266 @@ export default function App() {
         </div>
       </div>
 
+      {/* OPERATORS / CASHIERS & STAFF MANAGEMENT MODAL (FULL SCREEN) */}
+      <div
+        className="tela-relatorio-cheia"
+        id="modalOperadores"
+        style={{ display: modalOperadoresVisivel ? 'flex' : 'none' }}
+      >
+        <div className="cabecalho-relatorio">
+          <h2>👥 Gestão de Caixas, Operadores & Funcionários ({nomeSupermercadoAtivo})</h2>
+          <button className="btn-voltar-rel" onClick={fecharModalOperadores}>
+            Voltar
+          </button>
+        </div>
+        <div className="corpo-relatorio-cheio">
+          {/* FORMULÁRIO DE CADASTRO / EDIÇÃO DE OPERADOR */}
+          <div
+            style={{
+              background: 'var(--branco)',
+              borderRadius: '12px',
+              padding: '16px',
+              border: '1px solid var(--borda)',
+              marginBottom: '20px',
+              boxShadow: '0 2px 6px rgba(0,0,0,0.05)',
+            }}
+          >
+            <h3 style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--primario)', marginBottom: '12px' }}>
+              {opEditandoId ? '✏️ Editar Operador / Permissões' : '➕ Cadastrar Novo Operador de Caixa / Funcionário'}
+            </h3>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
+              <div className="grupo-input" style={{ marginBottom: 0 }}>
+                <label className="rotulo-campo">Nome do Funcionário</label>
+                <input
+                  type="text"
+                  className="input-modal"
+                  placeholder="Ex: Carlos Oliveira"
+                  value={regOpNome}
+                  onChange={(e) => setRegOpNome(e.target.value)}
+                  required
+                />
+              </div>
+
+              <div className="grupo-input" style={{ marginBottom: 0 }}>
+                <label className="rotulo-campo">CPF / Login do Operador</label>
+                <input
+                  type="text"
+                  className="input-modal"
+                  placeholder="Ex: caixa01 ou 123.456.789-00"
+                  value={regOpCpf}
+                  onChange={(e) => setRegOpCpf(e.target.value)}
+                  required
+                />
+              </div>
+
+              <div className="grupo-input" style={{ marginBottom: 0 }}>
+                <label className="rotulo-campo">PIN / Senha do Caixa</label>
+                <input
+                  type="password"
+                  className="input-modal"
+                  placeholder="Ex: 1234"
+                  value={regOpSenha}
+                  onChange={(e) => setRegOpSenha(e.target.value)}
+                />
+              </div>
+
+              <div className="grupo-input" style={{ marginBottom: 0 }}>
+                <label className="rotulo-campo">Cargo / Nível de Acesso</label>
+                <select
+                  className="input-modal"
+                  value={regOpCargo}
+                  onChange={(e) => aplicarPermissoesPorCargo(e.target.value as any)}
+                >
+                  <option value="Operador de Caixa">🛒 Operador de Caixa</option>
+                  <option value="Supervisor">👔 Supervisor de Loja</option>
+                  <option value="Administrador">👑 Administrador Local</option>
+                </select>
+              </div>
+            </div>
+
+            {/* ATALHOS DE PERMISSÃO */}
+            <div style={{ marginTop: '16px', marginBottom: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+              <label className="rotulo-campo" style={{ fontSize: '0.88rem', fontWeight: 700, color: 'var(--texto)', marginBottom: 0 }}>
+                🔳 Quadrados de Permissão do Operador (O que ele pode acessar ou mexer):
+              </label>
+              <div style={{ display: 'flex', gap: '6px' }}>
+                <button
+                  type="button"
+                  style={{ background: '#e0f2fe', color: '#0284c7', border: 'none', padding: '4px 8px', borderRadius: '4px', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer' }}
+                  onClick={() => aplicarPermissoesPorCargo('Operador de Caixa')}
+                >
+                  ⚡ Permissões Padrão de Caixa
+                </button>
+                <button
+                  type="button"
+                  style={{ background: '#dcfce7', color: '#166534', border: 'none', padding: '4px 8px', borderRadius: '4px', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer' }}
+                  onClick={() => aplicarPermissoesPorCargo('Administrador')}
+                >
+                  👑 Permissões Padrão de Administrador
+                </button>
+              </div>
+            </div>
+
+            {/* QUADRADOS DE PERMISSÃO DO OPERADOR */}
+            <div className="grid-permissoes">
+              {[
+                { key: 'vender', icon: '🛒', title: 'Realizar Vendas', desc: 'Registrar saídas no caixa do PDV' },
+                { key: 'dar_desconto', icon: '💲', title: 'Dar Desconto', desc: 'Aplicar desconto no valor final' },
+                { key: 'alterar_preco', icon: '✏️', title: 'Alterar Preço', desc: 'Mudar valor unitário no produto' },
+                { key: 'cadastrar_produtos', icon: '📦', title: 'Cadastrar Produtos', desc: 'Criar ou editar itens no estoque' },
+                { key: 'baixa_estoque', icon: '🗑️', title: 'Baixa Manual', desc: 'Remover itens por perda ou descarte' },
+                { key: 'ver_relatorios', icon: '📊', title: 'Faturamento', desc: 'Ver relatórios e relatórios de vendas' },
+                { key: 'gerenciar_equipe', icon: '👥', title: 'Gerenciar Caixas', desc: 'Cadastrar outros funcionários' },
+                { key: 'imprimir_etiquetas', icon: '🏷️', title: 'Imprimir Etiquetas', desc: 'Etiquetas térmicas e código de barras' },
+              ].map((item) => {
+                const marcado = regOpPermissoes[item.key as keyof PermissoesOperador];
+                return (
+                  <div
+                    key={item.key}
+                    className={`card-permissao ${marcado ? 'marcado' : ''}`}
+                    onClick={() => alternarPermissaoOperador(item.key as keyof PermissoesOperador)}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={marcado}
+                      onChange={() => {}}
+                    />
+                    <div className="info-permissao">
+                      <div className="titulo-permissao">
+                        <span>{item.icon}</span>
+                        <span>{item.title}</span>
+                      </div>
+                      <div className="desc-permissao">{item.desc}</div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="grupo-botoes" style={{ marginTop: '14px' }}>
+              <button className="btn btn-salvar" onClick={salvarOperador}>
+                {opEditandoId ? 'Atualizar Operador' : 'Salvar Operador de Caixa'}
+              </button>
+              {opEditandoId && (
+                <button
+                  className="btn btn-cancelar"
+                  onClick={() => {
+                    setOpEditandoId(null);
+                    setRegOpNome('');
+                    setRegOpCpf('');
+                    setRegOpSenha('');
+                    setRegOpCargo('Operador de Caixa');
+                    setRegOpPermissoes(PERMISSOES_CAIXA_PADRAO);
+                    setMsgRegOp('');
+                  }}
+                >
+                  Cancelar Edição
+                </button>
+              )}
+            </div>
+            <div className="msg">{msgRegOp}</div>
+          </div>
+
+          {/* LISTA DE OPERADORES CADASTRADOS NA LOJA */}
+          <div
+            style={{
+              background: 'var(--branco)',
+              borderRadius: '12px',
+              padding: '16px',
+              border: '1px solid var(--borda)',
+              boxShadow: '0 2px 6px rgba(0,0,0,0.05)',
+            }}
+          >
+            <h3 style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--texto)', marginBottom: '12px' }}>
+              👥 Operadores & Caixas Cadastrados no {nomeSupermercadoAtivo} (Total: {listaOperadores.length})
+            </h3>
+
+            {listaOperadores.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '24px', color: 'var(--texto-secundario)' }}>
+                Nenhum operador de caixa cadastrado nesta loja. Use o formulário acima para adicionar um funcionário.
+              </div>
+            ) : (
+              <div className="tabela-relatorio">
+                {listaOperadores.map((op) => (
+                  <div
+                    key={op.id}
+                    className="relatorio-linha-cheia"
+                    style={{
+                      background: op.ativo ? 'var(--branco)' : '#f8fafc',
+                      opacity: op.ativo ? 1 : 0.7,
+                    }}
+                  >
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                        <b style={{ fontSize: '0.95rem', color: 'var(--texto)' }}>{op.nome}</b>
+                        <span
+                          className={`badge-permissao-status ${op.ativo ? 'badge-ativa' : 'badge-inativa'}`}
+                        >
+                          {op.ativo ? '🟢 Ativo' : '🔴 Inativo'}
+                        </span>
+                        <span
+                          style={{
+                            background: '#f1f5f9',
+                            color: '#475569',
+                            fontSize: '0.72rem',
+                            padding: '2px 8px',
+                            borderRadius: '10px',
+                            fontWeight: 600,
+                          }}
+                        >
+                          {op.cargo}
+                        </span>
+                      </div>
+
+                      <div style={{ fontSize: '0.8rem', color: 'var(--texto-secundario)', marginTop: '2px' }}>
+                        Login/CPF: <b>{op.cpfOuUsuario}</b> | Cadastrado em: {op.dataCadastro || 'N/A'}
+                      </div>
+
+                      {/* BADGES DE PERMISSÕES ATIVAS */}
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '6px' }}>
+                        {op.permissoes?.vender && <span style={{ fontSize: '0.68rem', background: '#e0f2fe', color: '#0369a1', padding: '1px 6px', borderRadius: '4px', fontWeight: 600 }}>🛒 Vendas</span>}
+                        {op.permissoes?.dar_desconto && <span style={{ fontSize: '0.68rem', background: '#dcfce7', color: '#15803d', padding: '1px 6px', borderRadius: '4px', fontWeight: 600 }}>💲 Desconto</span>}
+                        {op.permissoes?.alterar_preco && <span style={{ fontSize: '0.68rem', background: '#fef3c7', color: '#b45309', padding: '1px 6px', borderRadius: '4px', fontWeight: 600 }}>✏️ Alterar Preço</span>}
+                        {op.permissoes?.cadastrar_produtos && <span style={{ fontSize: '0.68rem', background: '#f3e8ff', color: '#6b21a8', padding: '1px 6px', borderRadius: '4px', fontWeight: 600 }}>📦 Cad. Produtos</span>}
+                        {op.permissoes?.baixa_estoque && <span style={{ fontSize: '0.68rem', background: '#fee2e2', color: '#b91c1c', padding: '1px 6px', borderRadius: '4px', fontWeight: 600 }}>🗑️ Baixa Manual</span>}
+                        {op.permissoes?.ver_relatorios && <span style={{ fontSize: '0.68rem', background: '#e0e7ff', color: '#3730a3', padding: '1px 6px', borderRadius: '4px', fontWeight: 600 }}>📊 Relatórios</span>}
+                        {op.permissoes?.gerenciar_equipe && <span style={{ fontSize: '0.68rem', background: '#fae8ff', color: '#86198f', padding: '1px 6px', borderRadius: '4px', fontWeight: 600 }}>👥 Gerir Equipe</span>}
+                      </div>
+                    </div>
+
+                    <div className="acoes-relatorio" style={{ flexDirection: 'column', gap: '4px' }}>
+                      <button
+                        className="btn-acao-rel btn-editar-rel"
+                        onClick={() => prepararEdicaoOperador(op)}
+                      >
+                        ✏️ Editar Permissões
+                      </button>
+                      <button
+                        className="btn-acao-rel"
+                        style={{
+                          background: op.ativo ? '#fef3c7' : '#dcfce7',
+                          color: op.ativo ? '#b45309' : '#15803d',
+                        }}
+                        onClick={() => alternarStatusOperador(op.id)}
+                      >
+                        {op.ativo ? '⏸ Desativar' : '▶ Ativar'}
+                      </button>
+                      <button
+                        className="btn-acao-rel btn-excluir-rel"
+                        onClick={() => excluirOperador(op.id)}
+                      >
+                        Excluir
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
       {/* PRODUCT REGISTRATION MODAL */}
       <div className="modal" id="modalCadastro" style={{ display: modalCadastroVisivel ? 'flex' : 'none' }}>
         <div className="modal-conteudo">
@@ -1782,22 +2510,7 @@ export default function App() {
               />
             </div>
 
-            {/* BOX ORIENTATIVO DE LOTE E VALIDADE */}
-            <div
-              style={{
-                background: '#f0f9ff',
-                border: '1px solid #bae6fd',
-                borderRadius: '8px',
-                padding: '10px 12px',
-                marginBottom: '12px',
-                fontSize: '0.8rem',
-                color: '#0369a1',
-              }}
-            >
-              <b>📌 Dica sobre Lote e Validade:</b> O código de barras identifica o produto. O Lote e a Validade são carimbados na embalagem/lata.
-              <br />
-              Você pode digitá-los ou usar o botão <b>📷 Ler Lote/Validade com IA</b> para fotografar o carimbo impresso!
-            </div>
+
 
             <div className="grupo-input">
               <label className="rotulo-campo">Lote do Produto</label>
@@ -2037,6 +2750,28 @@ export default function App() {
                 Fechar
               </button>
             </div>
+          </div>
+        </div>
+      </div>
+
+      {/* POPUP DE ALERTA DE ACESSO RESTRITO / PERMISSÃO NEGADA */}
+      <div className="modal" style={{ display: avisoRestrito ? 'flex' : 'none', zIndex: 999 }}>
+        <div className="modal-conteudo" style={{ maxWidth: '420px', borderTop: '6px solid #ef4444' }}>
+          <div className="cab-modal" style={{ background: '#fef2f2', color: '#991b1b', borderBottom: '1px solid #fee2e2' }}>
+            🔒 Acesso Bloqueado / Restrição de Perfil
+          </div>
+          <div className="corpo-modal" style={{ textAlign: 'center', padding: '20px 16px' }}>
+            <div style={{ fontSize: '2.5rem', marginBottom: '10px' }}>🛑</div>
+            <p style={{ fontSize: '0.92rem', color: '#334155', lineHeight: 1.5, marginBottom: '20px' }}>
+              {avisoRestrito}
+            </p>
+            <button
+              className="btn"
+              style={{ background: 'var(--primario)', color: '#fff', width: '100%', padding: '10px', fontSize: '0.9rem', fontWeight: 600 }}
+              onClick={() => setAvisoRestrito(null)}
+            >
+              Entendido
+            </button>
           </div>
         </div>
       </div>

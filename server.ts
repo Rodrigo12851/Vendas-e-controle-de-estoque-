@@ -88,8 +88,8 @@ async function startServer() {
       const result = JSON.parse(jsonText);
       return res.json(result);
     } catch (err: any) {
-      console.error("Erro no OCR Gemini:", err);
-      return res.status(500).json({ error: err.message || "Falha ao processar imagem" });
+      console.warn("Aviso no OCR Gemini, acionando leitor local:", err?.message || err);
+      return res.status(200).json({ error: "fallback_local", message: "Acionando OCR local" });
     }
   });
 
@@ -243,8 +243,8 @@ Retorne OBRIGATORIAMENTE em JSON válido com as chaves: "nomeProduto", "marca", 
               console.warn("Erro ao parsear JSON do Gemini:", jsonErr);
             }
           }
-        } catch (gemErr) {
-          console.warn("Erro ao consultar Gemini:", gemErr);
+        } catch (gemErr: any) {
+          console.warn("Aviso na consulta Gemini (usando fallback Open Food Facts):", gemErr?.message || gemErr);
         }
       }
 
@@ -298,8 +298,14 @@ Retorne OBRIGATORIAMENTE em JSON válido com as chaves: "nomeProduto", "marca", 
         fonte: fonte || "Geral",
       });
     } catch (err: any) {
-      console.error("Erro na consulta de código de barras:", err);
-      return res.status(500).json({ error: err.message || "Falha ao consultar código de barras" });
+      console.warn("Aviso na consulta de código de barras:", err?.message || err);
+      return res.status(200).json({
+        nomeProduto: "Produto Sem Título",
+        marca: "",
+        categoria: "Mercearia / Grãos & Cereais",
+        fotoUrl: "https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=600&q=80",
+        fonte: "Manual",
+      });
     }
   });
   if (process.env.NODE_ENV !== "production") {
