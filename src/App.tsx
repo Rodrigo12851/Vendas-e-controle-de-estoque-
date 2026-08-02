@@ -594,7 +594,68 @@ export default function App() {
     reader.readAsDataURL(file);
   };
 
-  // Query Gemini AI for Product Name, Category and Image by Barcode EAN
+  // Direct client-side lookup in Open Food Facts (Works 100% on static hosts like Vercel)
+  const buscarProdutoEANClientSide = async (ean: string) => {
+    const cleanEan = ean.trim().replace(/\D/g, '');
+    if (!cleanEan) return null;
+
+    const urls = [
+      `https://br.openfoodfacts.org/api/v2/product/${cleanEan}.json`,
+      `https://world.openfoodfacts.org/api/v2/product/${cleanEan}.json`,
+    ];
+
+    for (const url of urls) {
+      try {
+        const res = await fetch(url);
+        if (res.ok) {
+          const data = await res.json();
+          if (data && data.status === 1 && data.product) {
+            const prod = data.product;
+            const nome = prod.product_name_pt || prod.product_name || '';
+            const marca = prod.brands || '';
+            const qtd = prod.quantity || '';
+            const foto = prod.image_front_url || prod.image_url || prod.image_front_small_url || prod.image_small_url || '';
+
+            let categoria = 'Mercearia / Grãos & Cereais';
+            if (prod.categories_tags && Array.isArray(prod.categories_tags)) {
+              const catsStr = prod.categories_tags.join(' ').toLowerCase();
+              if (catsStr.includes('beverage') || catsStr.includes('drink') || catsStr.includes('bebida') || catsStr.includes('juice') || catsStr.includes('soda')) {
+                categoria = 'Bebidas Não Alcoólicas';
+              } else if (catsStr.includes('dairy') || catsStr.includes('milk') || catsStr.includes('leite') || catsStr.includes('cheese') || catsStr.includes('cream')) {
+                categoria = 'Laticínios & Frios';
+              } else if (catsStr.includes('snack') || catsStr.includes('biscuit') || catsStr.includes('cookie') || catsStr.includes('biscoito')) {
+                categoria = 'Biscoitos & Snacks';
+              } else if (catsStr.includes('cleaning') || catsStr.includes('detergent') || catsStr.includes('limpeza')) {
+                categoria = 'Limpeza Doméstica';
+              }
+            }
+
+            let nomeCompleto = nome;
+            if (marca && !nome.toLowerCase().includes(marca.toLowerCase())) {
+              nomeCompleto = `${marca} ${nome}`.trim();
+            }
+            if (qtd && !nomeCompleto.toLowerCase().includes(qtd.toLowerCase())) {
+              nomeCompleto = `${nomeCompleto} ${qtd}`.trim();
+            }
+
+            return {
+              nomeProduto: nomeCompleto || nome,
+              marca,
+              categoria,
+              fotoUrl: foto,
+              fonte: 'Open Food Facts (Direto)',
+            };
+          }
+        }
+      } catch (e) {
+        console.warn('Erro ao consultar Open Food Facts client-side:', e);
+      }
+    }
+
+    return null;
+  };
+
+  // Query Gemini AI or Open Food Facts for Product Name, Category and Image by Barcode EAN
   const consultarEANGemini = async (codigoOpcional?: string) => {
     const codParaConsultar = (codigoOpcional || cadCod).trim();
     if (!codParaConsultar) {
@@ -603,21 +664,36 @@ export default function App() {
     }
 
     setConsultandoEAN(true);
+    let data: any = null;
+
+    // 1. Try server endpoint safely
     try {
       const res = await fetch('/api/consultar-produto-codigo', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ean: codParaConsultar }),
       });
-      const data = await res.json();
-      setConsultandoEAN(false);
 
-      if (data.error) {
-        alert('Erro ao consultar código no Gemini: ' + data.error);
-        return;
+      const contentType = res.headers.get('content-type') || '';
+      if (res.ok && contentType.includes('application/json')) {
+        data = await res.json();
       }
+    } catch (err) {
+      console.warn('Endpoint do servidor indisponível ou erro de resposta HTML, usando fallback client-side...', err);
+    }
 
-      if (data.nomeProduto) setCadNome(data.nomeProduto);
+    // 2. Fallback to direct client-side lookup if server returned error / HTML / missing name
+    if (!data || !data.nomeProduto) {
+      const resultClient = await buscarProdutoEANClientSide(codParaConsultar);
+      if (resultClient) {
+        data = resultClient;
+      }
+    }
+
+    setConsultandoEAN(false);
+
+    if (data && data.nomeProduto) {
+      setCadNome(data.nomeProduto);
       if (data.marca) setCadMarca(data.marca);
       if (data.categoria) {
         const matchCat = LISTA_CATEGORIAS.find(
@@ -629,20 +705,18 @@ export default function App() {
         setFotoTemp(data.fotoUrl);
       }
 
-      if (data.nomeProduto) {
-        alert(
-          `✨ Campos do Formulário Preenchidos!\n\n` +
-            `• Produto: ${data.nomeProduto}\n` +
-            (data.marca ? `• Marca: ${data.marca}\n` : '') +
-            `• Categoria: ${data.categoria || 'Geral'}\n\n` +
-            `Os campos foram preenchidos automaticamente na tela. Verifique e complete o lote/validade!`
-        );
-      } else {
-        alert('⚠️ Código lido (' + codParaConsultar + '), mas o produto não foi localizado nos bancos de dados online. Preencha os dados manualmente.');
-      }
-    } catch (err: any) {
-      setConsultandoEAN(false);
-      alert('Erro ao consultar código de barras: ' + err.message);
+      alert(
+        `✨ Campos do Formulário Preenchidos!\n\n` +
+          `• Produto: ${data.nomeProduto}\n` +
+          (data.marca ? `• Marca: ${data.marca}\n` : '') +
+          `• Categoria: ${data.categoria || 'Geral'}\n` +
+          (data.fotoUrl ? `• Foto do produto anexada! 📸\n\n` : '\n') +
+          `Os campos foram preenchidos na tela. Complete com o lote e validade!`
+      );
+    } else {
+      alert(
+        `⚠️ Código de barras lido (${codParaConsultar}), mas o produto não foi localizado nos bancos de dados online.\n\nPor favor, digite o nome e a marca do produto manualmente.`
+      );
     }
   };
 
