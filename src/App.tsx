@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
+import { BrowserMultiFormatReader } from '@zxing/library';
 
 // Shared types matching the user specification
 interface ProdutoCatalogo {
@@ -98,6 +99,12 @@ export default function App() {
   const [processandoOCR, setProcessandoOCR] = useState<boolean>(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
+  const codeReaderRef = useRef<BrowserMultiFormatReader | null>(null);
+  const destinoLeitorRef = useRef<string>(destinoLeitor);
+
+  useEffect(() => {
+    destinoLeitorRef.current = destinoLeitor;
+  }, [destinoLeitor]);
 
   // Modals visibility
   const [modalSupermercadoVisivel, setModalSupermercadoVisivel] = useState<boolean>(false);
@@ -358,26 +365,45 @@ export default function App() {
     iniciarLeitor();
   };
 
-  // Camera stream attachment effect to fix first-click race condition
-  useEffect(() => {
-    if (leitorAtivo && mediaStreamRef.current && videoRef.current) {
-      videoRef.current.srcObject = mediaStreamRef.current;
-      videoRef.current
-        .play()
-        .then(() => {
-          if ('BarcodeDetector' in window) {
-            // @ts-ignore
-            const detector = new window.BarcodeDetector({ formats: ['ean_13', 'ean_8', 'upc_a', 'code_128', 'qr_code'] });
-            escanearNativo(detector);
-          }
-        })
-        .catch((e) => console.warn('Erro ao reproduzir fluxo da câmera:', e));
-    }
-  }, [leitorAtivo]);
-
   const abrirLeitorRelatorio = () => {
     setDestinoLeitor('relatorio');
     iniciarLeitor();
+  };
+
+  const processarCodigoScaneado = (codigoLido: string) => {
+    const codLimpo = codigoLido.trim();
+    const destino = destinoLeitorRef.current;
+
+    fecharLeitor();
+
+    if (navigator.vibrate) {
+      try {
+        navigator.vibrate(120);
+      } catch (e) {}
+    }
+
+    if (destino === 'busca') {
+      setBusca(codLimpo);
+      const achou = estoque.find((p) => p.codigo === codLimpo);
+      if (achou) {
+        abrirVenda(achou.codigo, achou.validade, achou.lote);
+      }
+    } else if (destino === 'cadastro') {
+      setCadCod(codLimpo);
+      const achouCat = catalogoGlobal.find((c) => c.codigo === codLimpo);
+      if (achouCat) {
+        setCadNome(achouCat.nome || '');
+        setCadMarca(achouCat.marca || '');
+        setCadCategoria(achouCat.categoria || '');
+        if (achouCat.imagem) setFotoTemp(achouCat.imagem);
+      }
+      // AUTOMATICALLY query Gemini & Open Food Facts for title, brand, category & studio image
+      consultarEANGemini(codLimpo);
+    } else if (destino === 'lote') {
+      setCadLote(codLimpo);
+    } else if (destino === 'relatorio') {
+      setBuscaRelatorio(codLimpo);
+    }
   };
 
   const iniciarLeitor = async () => {
@@ -387,60 +413,75 @@ export default function App() {
         video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
       });
       mediaStreamRef.current = stream;
+
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        videoRef.current.play().catch(() => {});
+        await videoRef.current.play().catch(() => {});
       }
-    } catch (err: any) {
-      alert('Erro ao acessar a câmera: ' + err.message);
-      fecharLeitor();
-    }
-  };
 
-  const escanearNativo = async (detector: any) => {
-    if (!videoRef.current || !leitorAtivo) return;
-    try {
-      if (videoRef.current.readyState >= 2) {
-        const barcodes = await detector.detect(videoRef.current);
-        if (barcodes && barcodes.length > 0) {
-          const codigoLido = barcodes[0].rawValue;
-          fecharLeitor();
-          if (destinoLeitor === 'busca') {
-            setBusca(codigoLido);
-            const achou = estoque.find((p) => p.codigo === codigoLido);
-            if (achou) {
-              abrirVenda(achou.codigo, achou.validade, achou.lote);
-            }
-          } else if (destinoLeitor === 'cadastro') {
-            setCadCod(codigoLido);
-            const achouCat = catalogoGlobal.find((c) => c.codigo === codigoLido);
-            if (achouCat) {
-              setCadNome(achouCat.nome || '');
-              setCadMarca(achouCat.marca || '');
-              setCadCategoria(achouCat.categoria || '');
-              if (achouCat.imagem) setFotoTemp(achouCat.imagem);
-            }
-            // Always trigger structured EAN lookup for studio image & detailed name
-            consultarEANGemini(codigoLido);
-          } else if (destinoLeitor === 'lote') {
-            setCadLote(codigoLido);
-          } else if (destinoLeitor === 'relatorio') {
-            setBuscaRelatorio(codigoLido);
+      let escaneou = false;
+      const onDetect = (rawText: string) => {
+        if (escaneou || !rawText) return;
+        escaneou = true;
+        processarCodigoScaneado(rawText);
+      };
+
+      // 1. ZXing MultiFormat Reader (Runs on ALL Browsers: Chrome, iOS Safari, Android, Webviews)
+      if (!codeReaderRef.current) {
+        codeReaderRef.current = new BrowserMultiFormatReader();
+      }
+
+      if (videoRef.current) {
+        codeReaderRef.current.decodeFromVideoElement(videoRef.current, (result) => {
+          if (result && !escaneou) {
+            const txt = result.getText();
+            if (txt) onDetect(txt);
           }
-          return;
+        });
+      }
+
+      // 2. Native BarcodeDetector (Hardware Accelerated if available)
+      if ('BarcodeDetector' in window) {
+        try {
+          // @ts-ignore
+          const detector = new window.BarcodeDetector({
+            formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'qr_code'],
+          });
+
+          const scanLoop = async () => {
+            if (escaneou || !videoRef.current) return;
+            try {
+              if (videoRef.current.readyState >= 2) {
+                const barcodes = await detector.detect(videoRef.current);
+                if (barcodes && barcodes.length > 0 && barcodes[0].rawValue) {
+                  onDetect(barcodes[0].rawValue);
+                  return;
+                }
+              }
+            } catch (e) {}
+            if (!escaneou) {
+              requestAnimationFrame(scanLoop);
+            }
+          };
+          requestAnimationFrame(scanLoop);
+        } catch (e) {
+          console.warn('Native BarcodeDetector not supported or failed initialization:', e);
         }
       }
-    } catch (e) {
-      // Ignored for continuous scanning loops
-    }
-    if (leitorAtivo) {
-      requestAnimationFrame(() => escanearNativo(detector));
+    } catch (err: any) {
+      alert('Erro ao acessar a câmera: ' + (err.message || 'Verifique as permissões de câmera no navegador'));
+      fecharLeitor();
     }
   };
 
   const fecharLeitor = () => {
     setLeitorAtivo(false);
     setProcessandoOCR(false);
+    if (codeReaderRef.current) {
+      try {
+        codeReaderRef.current.reset();
+      } catch (e) {}
+    }
     if (mediaStreamRef.current) {
       mediaStreamRef.current.getTracks().forEach((track) => track.stop());
       mediaStreamRef.current = null;
@@ -1295,6 +1336,9 @@ export default function App() {
       <div className="leitor-tela" id="tela-leitor" style={{ display: leitorAtivo ? 'flex' : 'none' }}>
         <div id="video-container">
           <video id="video-webcam" ref={videoRef} autoPlay playsInline muted></video>
+          <div className="mira-scanner">
+            <div className="linha-laser"></div>
+          </div>
         </div>
 
         {destinoLeitor === 'lote' ? (
@@ -1635,52 +1679,6 @@ export default function App() {
             {codigoEditando ? 'Editar Lote no Estoque' : 'Novo Produto no Estoque'}
           </div>
           <div className="corpo-modal">
-            <div className="grupo-input">
-              <label className="rotulo-campo">Código de Barras</label>
-              <div className="linha-input">
-                <input
-                  type="text"
-                  id="cad-cod"
-                  className="input-modal"
-                  placeholder="Código de barras EAN"
-                  value={cadCod}
-                  onChange={(e) => {
-                    setCadCod(e.target.value);
-                    verificarCatalogoCodigo(e.target.value);
-                  }}
-                  required
-                />
-                <button className="btn-cam-pequeno" onClick={abrirLeitorCadastro} title="Escanear com Câmera">
-                  📷
-                </button>
-              </div>
-              <div style={{ marginTop: '6px' }}>
-                <button
-                  type="button"
-                  style={{
-                    background: 'var(--primario)',
-                    color: '#fff',
-                    border: 'none',
-                    padding: '6px 12px',
-                    borderRadius: '6px',
-                    fontSize: '0.8rem',
-                    fontWeight: 500,
-                    cursor: 'pointer',
-                    width: '100%',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '6px',
-                  }}
-                  onClick={() => consultarEANGemini()}
-                  disabled={consultandoEAN || !cadCod.trim()}
-                >
-                  {consultandoEAN
-                    ? '⏳ Consultando Gemini...'
-                    : '🤖 Buscar Dados com IA (Nome, Categoria e Foto)'}
-                </button>
-              </div>
-            </div>
             <div className="grupo-input">
               <label className="rotulo-campo">Código de Barras (EAN / GTIN)</label>
               <div className="linha-input">

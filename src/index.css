@@ -354,18 +354,48 @@ body {
 #video-container {
     width: 100%; 
     max-width: 380px; 
-    height: 240px; 
+    height: 260px; 
     position: relative;
-    border-radius: 10px; 
+    border-radius: 12px; 
     overflow: hidden; 
     border: 2px solid var(--sucesso); 
     background: #000;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5);
 }
 
 #video-webcam { 
     width: 100%; 
     height: 100%; 
     object-fit: cover; 
+}
+
+.mira-scanner {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 85%;
+    height: 65%;
+    border: 2px solid #22c55e;
+    border-radius: 8px;
+    box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.45);
+    pointer-events: none;
+}
+
+.linha-laser {
+    width: 100%;
+    height: 2px;
+    background: #ef4444;
+    box-shadow: 0 0 10px #ef4444, 0 0 20px #ef4444;
+    position: absolute;
+    top: 0;
+    animation: moverLaser 1.8s infinite ease-in-out;
+}
+
+@keyframes moverLaser {
+    0% { top: 2%; }
+    50% { top: 96%; }
+    100% { top: 2%; }
 }
 
 .aviso-leitor { 
