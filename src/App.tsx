@@ -358,6 +358,23 @@ export default function App() {
     iniciarLeitor();
   };
 
+  // Camera stream attachment effect to fix first-click race condition
+  useEffect(() => {
+    if (leitorAtivo && mediaStreamRef.current && videoRef.current) {
+      videoRef.current.srcObject = mediaStreamRef.current;
+      videoRef.current
+        .play()
+        .then(() => {
+          if ('BarcodeDetector' in window) {
+            // @ts-ignore
+            const detector = new window.BarcodeDetector({ formats: ['ean_13', 'ean_8', 'upc_a', 'code_128', 'qr_code'] });
+            escanearNativo(detector);
+          }
+        })
+        .catch((e) => console.warn('Erro ao reproduzir fluxo da câmera:', e));
+    }
+  }, [leitorAtivo]);
+
   const abrirLeitorRelatorio = () => {
     setDestinoLeitor('relatorio');
     iniciarLeitor();
@@ -367,17 +384,12 @@ export default function App() {
     setLeitorAtivo(true);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment' },
+        video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
       });
       mediaStreamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-      }
-
-      if ('BarcodeDetector' in window) {
-        // @ts-ignore
-        const detector = new window.BarcodeDetector({ formats: ['ean_13', 'ean_8', 'upc_a', 'code_128'] });
-        escanearNativo(detector);
+        videoRef.current.play().catch(() => {});
       }
     } catch (err: any) {
       alert('Erro ao acessar a câmera: ' + err.message);
@@ -386,40 +398,44 @@ export default function App() {
   };
 
   const escanearNativo = async (detector: any) => {
-    if (!videoRef.current) return;
+    if (!videoRef.current || !leitorAtivo) return;
     try {
-      const barcodes = await detector.detect(videoRef.current);
-      if (barcodes && barcodes.length > 0) {
-        const codigoLido = barcodes[0].rawValue;
-        fecharLeitor();
-        if (destinoLeitor === 'busca') {
-          setBusca(codigoLido);
-          const achou = estoque.find((p) => p.codigo === codigoLido);
-          if (achou) {
-            abrirVenda(achou.codigo, achou.validade, achou.lote);
-          }
-        } else if (destinoLeitor === 'cadastro') {
-          setCadCod(codigoLido);
-          const achouCat = catalogoGlobal.find((c) => c.codigo === codigoLido);
-          if (achouCat) {
-            setCadNome(achouCat.nome || '');
-            setCadMarca(achouCat.marca || '');
-            setCadCategoria(achouCat.categoria || '');
-            if (achouCat.imagem) setFotoTemp(achouCat.imagem);
-          } else {
+      if (videoRef.current.readyState >= 2) {
+        const barcodes = await detector.detect(videoRef.current);
+        if (barcodes && barcodes.length > 0) {
+          const codigoLido = barcodes[0].rawValue;
+          fecharLeitor();
+          if (destinoLeitor === 'busca') {
+            setBusca(codigoLido);
+            const achou = estoque.find((p) => p.codigo === codigoLido);
+            if (achou) {
+              abrirVenda(achou.codigo, achou.validade, achou.lote);
+            }
+          } else if (destinoLeitor === 'cadastro') {
+            setCadCod(codigoLido);
+            const achouCat = catalogoGlobal.find((c) => c.codigo === codigoLido);
+            if (achouCat) {
+              setCadNome(achouCat.nome || '');
+              setCadMarca(achouCat.marca || '');
+              setCadCategoria(achouCat.categoria || '');
+              if (achouCat.imagem) setFotoTemp(achouCat.imagem);
+            }
+            // Always trigger structured EAN lookup for studio image & detailed name
             consultarEANGemini(codigoLido);
+          } else if (destinoLeitor === 'lote') {
+            setCadLote(codigoLido);
+          } else if (destinoLeitor === 'relatorio') {
+            setBuscaRelatorio(codigoLido);
           }
-        } else if (destinoLeitor === 'lote') {
-          setCadLote(codigoLido);
-        } else if (destinoLeitor === 'relatorio') {
-          setBuscaRelatorio(codigoLido);
+          return;
         }
-        return;
       }
     } catch (e) {
       // Ignored for continuous scanning loops
     }
-    requestAnimationFrame(() => escanearNativo(detector));
+    if (leitorAtivo) {
+      requestAnimationFrame(() => escanearNativo(detector));
+    }
   };
 
   const fecharLeitor = () => {
@@ -1666,12 +1682,59 @@ export default function App() {
               </div>
             </div>
             <div className="grupo-input">
-              <label className="rotulo-campo">Nome do Produto</label>
+              <label className="rotulo-campo">Código de Barras (EAN / GTIN)</label>
+              <div className="linha-input">
+                <input
+                  type="text"
+                  id="cad-cod"
+                  className="input-modal"
+                  placeholder="Ex: 7891000379585"
+                  value={cadCod}
+                  onChange={(e) => {
+                    setCadCod(e.target.value);
+                    verificarCatalogoCodigo(e.target.value);
+                  }}
+                  required
+                />
+                <button className="btn-cam-pequeno" onClick={abrirLeitorCadastro} title="Escanear Código de Barras com Câmera">
+                  📷
+                </button>
+              </div>
+              <div style={{ marginTop: '6px' }}>
+                <button
+                  type="button"
+                  style={{
+                    background: 'var(--primario)',
+                    color: '#fff',
+                    border: 'none',
+                    padding: '8px 12px',
+                    borderRadius: '6px',
+                    fontSize: '0.82rem',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    width: '100%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '6px',
+                    boxShadow: '0 2px 4px rgba(2,132,199,0.2)',
+                  }}
+                  onClick={() => consultarEANGemini()}
+                  disabled={consultandoEAN || !cadCod.trim()}
+                >
+                  {consultandoEAN
+                    ? '⏳ Buscando Nome Detalhado & Foto de Estúdio...'
+                    : '🤖 Buscar Dados com IA (Nome Detalhado + Foto Fundo Branco)'}
+                </button>
+              </div>
+            </div>
+            <div className="grupo-input">
+              <label className="rotulo-campo">Nome Detalhado do Produto</label>
               <input
                 type="text"
                 id="cad-nome"
                 className="input-modal"
-                placeholder="Nome do produto"
+                placeholder="Ex: Achocolatado em Pó Nestlé Nescau 2.0 Lata 370g"
                 value={cadNome}
                 onChange={(e) => setCadNome(e.target.value)}
                 required
@@ -1683,7 +1746,7 @@ export default function App() {
                 type="text"
                 id="cad-marca"
                 className="input-modal"
-                placeholder="Marca (opcional)"
+                placeholder="Ex: Nestlé, Coca-Cola, Piracanjuba"
                 value={cadMarca}
                 onChange={(e) => setCadMarca(e.target.value)}
               />
@@ -1708,36 +1771,54 @@ export default function App() {
               </select>
             </div>
             <div className="grupo-input">
-              <label className="rotulo-campo">Quantidade</label>
+              <label className="rotulo-campo">Quantidade em Estoque</label>
               <input
                 type="number"
                 id="cad-qtd"
                 className="input-modal"
-                placeholder="Qtd"
+                placeholder="Qtd de unidades"
                 min="1"
                 value={cadQtd}
                 onChange={(e) => setCadQtd(e.target.value)}
                 required
               />
             </div>
+
+            {/* BOX ORIENTATIVO DE LOTE E VALIDADE */}
+            <div
+              style={{
+                background: '#f0f9ff',
+                border: '1px solid #bae6fd',
+                borderRadius: '8px',
+                padding: '10px 12px',
+                marginBottom: '12px',
+                fontSize: '0.8rem',
+                color: '#0369a1',
+              }}
+            >
+              <b>📌 Dica sobre Lote e Validade:</b> O código de barras identifica o produto. O Lote e a Validade são carimbados na embalagem/lata.
+              <br />
+              Você pode digitá-los ou usar o botão <b>📷 Ler Lote/Validade com IA</b> para fotografar o carimbo impresso!
+            </div>
+
             <div className="grupo-input">
-              <label className="rotulo-campo">Lote</label>
+              <label className="rotulo-campo">Lote do Produto</label>
               <div className="linha-input">
                 <input
                   type="text"
                   id="cad-lote"
                   className="input-modal"
-                  placeholder="Número do lote"
+                  placeholder="Ex: LOTE-104526 (ou deixe em branco p/ gerar auto)"
                   value={cadLote}
                   onChange={(e) => setCadLote(e.target.value)}
                 />
-                <button className="btn-cam-pequeno" onClick={abrirLeitorLote} title="Escanear Lote">
+                <button className="btn-cam-pequeno" onClick={abrirLeitorLote} title="Fotografar Carimbo de Lote e Validade com IA">
                   📷
                 </button>
               </div>
             </div>
             <div className="grupo-input">
-              <label className="rotulo-campo">Validade</label>
+              <label className="rotulo-campo">Data de Validade</label>
               <input
                 type="date"
                 id="cad-val"
@@ -1775,7 +1856,7 @@ export default function App() {
               />
             </div>
             <div className="grupo-input">
-              <label className="rotulo-campo">Imagem (Opcional)</label>
+              <label className="rotulo-campo">Foto do Produto (Packshot Fundo Branco)</label>
               <input
                 type="file"
                 id="cad-foto"
@@ -1783,8 +1864,30 @@ export default function App() {
                 style={{ width: '100%', fontSize: '0.85rem' }}
                 onChange={carregarFoto}
               />
-              <div className="preview-foto" id="preview-foto">
-                {fotoTemp ? <img src={fotoTemp} alt="Preview" /> : 'Sem imagem'}
+              <div
+                className="preview-foto"
+                id="preview-foto"
+                style={{
+                  background: '#ffffff',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '8px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: '8px',
+                  marginTop: '6px',
+                  height: '140px',
+                }}
+              >
+                {fotoTemp ? (
+                  <img
+                    src={fotoTemp}
+                    alt="Preview Produto Fundo Branco"
+                    style={{ maxHeight: '100%', maxWidth: '100%', objectFit: 'contain' }}
+                  />
+                ) : (
+                  <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Sem foto (busque no Gemini ou envie um arquivo)</span>
+                )}
               </div>
             </div>
             <div className="grupo-botoes">
