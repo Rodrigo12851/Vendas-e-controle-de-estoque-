@@ -1,5 +1,8 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { BrowserMultiFormatReader } from '@zxing/library';
+import { Venda, VendaItem } from './types';
+import { RelatorioVendasModal } from './components/RelatorioVendasModal';
+import { GraficosVendasModal } from './components/GraficosVendasModal';
 
 // Shared types matching the user specification
 interface ProdutoCatalogo {
@@ -286,7 +289,100 @@ export default function App() {
   // Stock Sale/Markdown Modal
   const [prodAtual, setProdAtual] = useState<ItemEstoque | null>(null);
   const [qtdBaixa, setQtdBaixa] = useState<number>(1);
+  const [formaPagamento, setFormaPagamento] = useState<'dinheiro' | 'cartao_credito' | 'cartao_debito' | 'pix'>('pix');
   const [msgVenda, setMsgVenda] = useState<React.ReactNode>('');
+
+  // Vendas, Estornos & Gráficos Modals
+  const [modalRelatorioVendasVisivel, setModalRelatorioVendasVisivel] = useState<boolean>(false);
+  const [modalGraficosVendasVisivel, setModalGraficosVendasVisivel] = useState<boolean>(false);
+
+  // Sales History List (Per Store)
+  const [vendas, setVendas] = useState<Venda[]>(() => {
+    const storeId = localStorage.getItem('supermercadoAtualId') || 'loja_matriz_01';
+    const salvo = localStorage.getItem(`vendas_${storeId}`);
+    if (salvo) {
+      try {
+        return JSON.parse(salvo);
+      } catch (e) {}
+    }
+    // Seed initial sales data for demonstration
+    const hoje = new Date();
+    const hojeIso = hoje.toISOString().slice(0, 10);
+    const ontem = new Date(hoje.getTime() - 24 * 60 * 60 * 1000);
+    const ontemIso = ontem.toISOString().slice(0, 10);
+    const ha3dias = new Date(hoje.getTime() - 3 * 24 * 60 * 60 * 1000);
+    const ha3diasIso = ha3dias.toISOString().slice(0, 10);
+
+    const vendasIniciais: Venda[] = [
+      {
+        id: 'ven_1001',
+        lojaId: storeId,
+        data: hojeIso,
+        hora: '10:15',
+        timestamp: hoje.getTime() - 4 * 3600 * 1000,
+        operadorId: 'op_padrao_01',
+        operadorNome: 'João Silva (Operador Caixa)',
+        itens: [
+          { codigo: '7891000100102', nome: 'Arroz Integral 1kg', quantidade: 3, preco_unitario: 8.90, subtotal: 26.70, lote: 'L001', validade: '2027-01-15' },
+          { codigo: '7891000379585', nome: 'Nescau 2.0 370g', quantidade: 2, preco_unitario: 12.50, subtotal: 25.00, lote: 'L002', validade: '2026-12-10' },
+        ],
+        valorTotal: 51.70,
+        formaPagamento: 'pix',
+        status: 'concluida',
+      },
+      {
+        id: 'ven_1002',
+        lojaId: storeId,
+        data: hojeIso,
+        hora: '11:42',
+        timestamp: hoje.getTime() - 2 * 3600 * 1000,
+        operadorId: 'op_padrao_02',
+        operadorNome: 'Maria Souza (Supervisora)',
+        itens: [
+          { codigo: '7891000100102', nome: 'Arroz Integral 1kg', quantidade: 5, preco_unitario: 8.90, subtotal: 44.50, lote: 'L001', validade: '2027-01-15' },
+        ],
+        valorTotal: 44.50,
+        formaPagamento: 'cartao_credito',
+        status: 'concluida',
+      },
+      {
+        id: 'ven_1003',
+        lojaId: storeId,
+        data: ontemIso,
+        hora: '16:30',
+        timestamp: ontem.getTime(),
+        operadorId: 'op_padrao_01',
+        operadorNome: 'João Silva (Operador Caixa)',
+        itens: [
+          { codigo: '7891000379585', nome: 'Nescau 2.0 370g', quantidade: 4, preco_unitario: 12.50, subtotal: 50.00, lote: 'L002', validade: '2026-12-10' },
+        ],
+        valorTotal: 50.00,
+        formaPagamento: 'cartao_debito',
+        status: 'concluida',
+      },
+      {
+        id: 'ven_1004',
+        lojaId: storeId,
+        data: ha3diasIso,
+        hora: '14:20',
+        timestamp: ha3dias.getTime(),
+        operadorId: 'op_padrao_02',
+        operadorNome: 'Maria Souza (Supervisora)',
+        itens: [
+          { codigo: '7891000100102', nome: 'Arroz Integral 1kg', quantidade: 2, preco_unitario: 8.90, subtotal: 17.80, lote: 'L001', validade: '2027-01-15' },
+        ],
+        valorTotal: 17.80,
+        formaPagamento: 'dinheiro',
+        status: 'estornada',
+        dataEstorno: ha3diasIso + ' 15:00',
+        operadorEstornoNome: 'Maria Souza (Supervisora)',
+        motivoEstorno: 'Desistência do cliente',
+      },
+    ];
+
+    localStorage.setItem(`vendas_${storeId}`, JSON.stringify(vendasIniciais));
+    return vendasIniciais;
+  });
 
   // BroadcastChannel for Real-time Cross-Tab / Cross-Device Sync
   useEffect(() => {
@@ -334,6 +430,13 @@ export default function App() {
 
     const estSalvo = localStorage.getItem(`estoque_${storeId}`);
     setEstoque(estSalvo ? JSON.parse(estSalvo) : []);
+
+    const vendSalvo = localStorage.getItem(`vendas_${storeId}`);
+    if (vendSalvo) {
+      try {
+        setVendas(JSON.parse(vendSalvo));
+      } catch (e) {}
+    }
 
     const catSalvo = localStorage.getItem('catalogoGlobalFirebase');
     if (catSalvo) setCatalogoGlobal(JSON.parse(catSalvo));
@@ -1313,11 +1416,46 @@ export default function App() {
       }
     }
 
+    // Determine cashier / seller name
+    const opAtivo = listaOperadores.find((op) => op.id === operadorAtivoId);
+    const nomeOperador = opAtivo ? opAtivo.nome : 'Administrador do Supermercado';
+
+    // Create Sale Object
+    const novaVenda: Venda = {
+      id: 'ven_' + Date.now(),
+      lojaId: supermercadoAtual,
+      data: new Date().toISOString().slice(0, 10),
+      hora: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+      timestamp: Date.now(),
+      operadorId: operadorAtivoId || 'admin',
+      operadorNome: nomeOperador,
+      itens: [
+        {
+          codigo: prodAtual.codigo,
+          nome: prodAtual.nome,
+          quantidade: qtdBaixa,
+          preco_unitario: prodAtual.preco_venda,
+          preco_custo: prodAtual.preco_custo,
+          subtotal: prodAtual.preco_venda * qtdBaixa,
+          lote: prodAtual.lote,
+          validade: prodAtual.validade,
+          foto: prodAtual.foto,
+        },
+      ],
+      valorTotal: prodAtual.preco_venda * qtdBaixa,
+      formaPagamento: formaPagamento,
+      status: 'concluida',
+    };
+
+    const novasVendas = [novaVenda, ...vendas];
+    setVendas(novasVendas);
+    localStorage.setItem(`vendas_${supermercadoAtual}`, JSON.stringify(novasVendas));
+
     setEstoque(novoEstoque);
     localStorage.setItem(`estoque_${supermercadoAtual}`, JSON.stringify(novoEstoque));
     setMsgVenda(
       <span style={{ color: 'var(--sucesso)' }}>
-        ✅ Baixa realizada! Restam {index !== -1 ? Math.max(0, novoEstoque[index]?.quantidade || 0) : 0}
+        ✅ Venda/Baixa realizada com sucesso! Restam {index !== -1 ? Math.max(0, novoEstoque[index]?.quantidade || 0) : 0} un.
       </span>
     );
     notificarSincronizacao();
@@ -1325,6 +1463,76 @@ export default function App() {
     setTimeout(() => {
       setModalVendaVisivel(false);
     }, 900);
+  };
+
+  // Sales Reversal (Estorno) Handler
+  const handleEstornarVenda = (vendaId: string, motivo: string) => {
+    const vendaIndex = vendas.findIndex((v) => v.id === vendaId);
+    if (vendaIndex === -1) return;
+
+    const venda = vendas[vendaIndex];
+    if (venda.status === 'estornada') return;
+
+    const opAtivo = listaOperadores.find((op) => op.id === operadorAtivoId);
+    const nomeOperadorEstorno = opAtivo ? opAtivo.nome : 'Administrador do Supermercado';
+    const dataHoraEstorno = `${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
+
+    // 1. Mark sale as estornada
+    const novasVendas = [...vendas];
+    novasVendas[vendaIndex] = {
+      ...venda,
+      status: 'estornada',
+      dataEstorno: dataHoraEstorno,
+      operadorEstornoNome: nomeOperadorEstorno,
+      motivoEstorno: motivo,
+    };
+
+    // 2. Return sold items back to inventory
+    let novoEstoque = [...estoque];
+    venda.itens.forEach((itemVenda) => {
+      const idxEst = novoEstoque.findIndex(
+        (p) => p.codigo === itemVenda.codigo && p.lote === itemVenda.lote && p.validade === itemVenda.validade
+      );
+
+      if (idxEst !== -1) {
+        novoEstoque[idxEst] = {
+          ...novoEstoque[idxEst],
+          quantidade: novoEstoque[idxEst].quantidade + itemVenda.quantidade,
+        };
+      } else {
+        // Re-create stock entry if it was completely sold out
+        novoEstoque.push({
+          codigo: itemVenda.codigo,
+          nome: itemVenda.nome,
+          quantidade: itemVenda.quantidade,
+          lote: itemVenda.lote || 'LOTE_ESTORNO',
+          validade: itemVenda.validade || new Date().toISOString().slice(0, 10),
+          preco_custo: itemVenda.preco_custo || 0,
+          preco_venda: itemVenda.preco_unitario,
+          foto: itemVenda.foto,
+        });
+      }
+    });
+
+    setEstoque(novoEstoque);
+    localStorage.setItem(`estoque_${supermercadoAtual}`, JSON.stringify(novoEstoque));
+
+    setVendas(novasVendas);
+    localStorage.setItem(`vendas_${supermercadoAtual}`, JSON.stringify(novasVendas));
+
+    notificarSincronizacao();
+  };
+
+  const abrirRelatorioVendas = () => {
+    fecharMenu();
+    if (!verificarPermissaoOuAvisar('relatorios', 'ver_relatorios', 'Ver Relatório de Vendas')) return;
+    setModalRelatorioVendasVisivel(true);
+  };
+
+  const abrirGraficosVendas = () => {
+    fecharMenu();
+    if (!verificarPermissaoOuAvisar('relatorios', 'ver_relatorios', 'Ver Gráficos de Desempenho')) return;
+    setModalGraficosVendasVisivel(true);
   };
 
   // Notifications Modal
@@ -1480,11 +1688,20 @@ export default function App() {
         </div>
 
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-          {perfilAtivo === 'dona_app' && (
-            <span style={{ color: '#0284c7', fontWeight: 600, fontSize: '0.78rem' }}>
-              ✨ Configuração Global de Lojas & Permissões
-            </span>
-          )}
+          <button
+            className="btn"
+            style={{ padding: '4px 10px', fontSize: '0.78rem', background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0', cursor: 'pointer', fontWeight: 600 }}
+            onClick={abrirRelatorioVendas}
+          >
+            🧾 Relatório de Vendas
+          </button>
+          <button
+            className="btn"
+            style={{ padding: '4px 10px', fontSize: '0.78rem', background: '#f0f9ff', color: '#0369a1', border: '1px solid #bae6fd', cursor: 'pointer', fontWeight: 600 }}
+            onClick={abrirGraficosVendas}
+          >
+            📈 Gráficos & Desempenho
+          </button>
           {perfilAtivo === 'admin_loja' && (
             <button
               className="btn"
@@ -1493,11 +1710,6 @@ export default function App() {
             >
               👥 Cadastrar Caixas & Permissões
             </button>
-          )}
-          {perfilAtivo === 'caixa' && (
-            <span style={{ color: '#166534', fontWeight: 600, fontSize: '0.78rem' }}>
-              🛒 Operando Caixa
-            </span>
           )}
         </div>
       </div>
@@ -1548,6 +1760,12 @@ export default function App() {
             }}
           >
             📊 Relatório de Estoque
+          </div>
+          <div className="sidebar-item" onClick={abrirRelatorioVendas}>
+            🧾 Relatório de Vendas (Histórico & Estorno)
+          </div>
+          <div className="sidebar-item" onClick={abrirGraficosVendas}>
+            📈 Gráficos & Inteligência de Estoque (Dono)
           </div>
         </div>
       </div>
@@ -2637,7 +2855,21 @@ export default function App() {
                 </p>
               </div>
               <div className="grupo-input" style={{ marginTop: '10px' }}>
-                <label className="rotulo-campo">Quantidade para baixa</label>
+                <label className="rotulo-campo">Forma de Pagamento</label>
+                <select
+                  className="input-modal"
+                  value={formaPagamento}
+                  onChange={(e) => setFormaPagamento(e.target.value as any)}
+                >
+                  <option value="pix">📱 PIX</option>
+                  <option value="cartao_credito">💳 Cartão de Crédito</option>
+                  <option value="cartao_debito">💳 Cartão de Débito</option>
+                  <option value="dinheiro">💵 Dinheiro (Espécie)</option>
+                </select>
+              </div>
+
+              <div className="grupo-input" style={{ marginTop: '10px' }}>
+                <label className="rotulo-campo">Quantidade para baixa / venda</label>
                 <input
                   type="number"
                   id="qtd-baixa"
@@ -2775,6 +3007,24 @@ export default function App() {
           </div>
         </div>
       </div>
+
+      {/* MODAIS DE RELATÓRIO DE VENDAS E GRÁFICOS */}
+      <RelatorioVendasModal
+        visivel={modalRelatorioVendasVisivel}
+        onFechar={() => setModalRelatorioVendasVisivel(false)}
+        vendas={vendas}
+        onEstornarVenda={handleEstornarVenda}
+        operadores={listaOperadores}
+        nomeLoja={nomeSupermercadoAtivo}
+      />
+
+      <GraficosVendasModal
+        visivel={modalGraficosVendasVisivel}
+        onFechar={() => setModalGraficosVendasVisivel(false)}
+        vendas={vendas}
+        estoque={estoque}
+        nomeLoja={nomeSupermercadoAtivo}
+      />
     </>
   );
 }
