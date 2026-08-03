@@ -31,8 +31,6 @@ export const GraficosVendasModal: React.FC<GraficosVendasModalProps> = ({
   const [tipoGrafico, setTipoGrafico] = useState<'area' | 'barras'>('area');
   const [abaAtiva, setAbaAtiva] = useState<'grafico' | 'ranking' | 'inteligencia'>('grafico');
 
-  if (!visivel) return null;
-
   // 1. Safe array of completed sales
   const vendasValidas = Array.isArray(vendas) ? vendas.filter((v) => v && v.status === 'concluida') : [];
 
@@ -307,6 +305,8 @@ export const GraficosVendasModal: React.FC<GraficosVendasModalProps> = ({
   }, [estoque, resumoItens]);
 
   const faturamentoTotalGeral = vendasValidas.reduce((acc, v) => acc + (Number(v.valorTotal) || 0), 0);
+
+  if (!visivel) return null;
 
   return (
     <div
