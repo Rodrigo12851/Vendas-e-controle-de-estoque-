@@ -1635,12 +1635,6 @@ export default function App() {
               value={busca}
               onChange={(e) => setBusca(e.target.value)}
             />
-            <button className="btn btn-notif" onClick={abrirRelatorioVendas} title="Relatório de Vendas & Estornos">
-              🧾
-            </button>
-            <button className="btn btn-notif" onClick={abrirGraficosVendas} title="Gráficos & Inteligência de Estoque">
-              📈
-            </button>
             <button className="btn btn-notif" onClick={abrirNotificacoes} title="Notificações/Alertas">
               🔔
               <span

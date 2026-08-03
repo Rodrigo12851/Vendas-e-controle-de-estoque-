@@ -9,7 +9,6 @@ import {
   CartesianGrid,
   AreaChart,
   Area,
-  Legend,
 } from 'recharts';
 import { Venda, ItemEstoque } from '../types';
 
@@ -34,253 +33,296 @@ export const GraficosVendasModal: React.FC<GraficosVendasModalProps> = ({
 
   if (!visivel) return null;
 
-  // 1. Considerar apenas vendas concluídas para faturamento
-  const vendasValidas = vendas ? vendas.filter((v) => v.status === 'concluida') : [];
+  // 1. Safe array of completed sales
+  const vendasValidas = Array.isArray(vendas) ? vendas.filter((v) => v && v.status === 'concluida') : [];
 
-  // Helper para converter string de data ou timestamp em Date seguro
+  // Helper for safe Date parsing
   const parseDataVenda = (v: Venda): Date => {
-    if (v.timestamp) return new Date(v.timestamp);
-    if (v.data) return new Date(v.data + 'T12:00:00');
+    try {
+      if (v && v.timestamp && typeof v.timestamp === 'number') {
+        const d = new Date(v.timestamp);
+        if (!isNaN(d.getTime())) return d;
+      }
+      if (v && v.data && typeof v.data === 'string') {
+        const dataStr = v.data.includes('T') ? v.data : `${v.data}T12:00:00`;
+        const d = new Date(dataStr);
+        if (!isNaN(d.getTime())) return d;
+      }
+    } catch (err) {
+      console.error('Erro ao converter data da venda:', err);
+    }
     return new Date();
   };
 
-  // 2. Agrupar Faturamento por Período (Dia, Semana, Mês, Ano)
+  // 2. Group revenue by period (Day, Week, Month, Year)
   const dadosGrafico = useMemo(() => {
-    const hoje = new Date();
+    try {
+      const hoje = new Date();
 
-    if (periodoGrafico === 'dia') {
-      // Agrupar por data nos últimos 7 a 14 dias
-      const porDia: Record<string, { isoKey: string; label: string; faturamento: number; qtdVendas: number }> = {};
+      if (periodoGrafico === 'dia') {
+        const porDia: Record<string, { isoKey: string; label: string; faturamento: number; qtdVendas: number }> = {};
 
-      // Inicializar últimos 10 dias em ordem cronológica
-      for (let i = 9; i >= 0; i--) {
-        const d = new Date();
-        d.setDate(hoje.getDate() - i);
-        const isoKey = d.toISOString().slice(0, 10);
-        const parts = isoKey.split('-');
-        const label = `${parts[2]}/${parts[1]}`;
-        porDia[isoKey] = { isoKey, label, faturamento: 0, qtdVendas: 0 };
-      }
-
-      vendasValidas.forEach((v) => {
-        const dt = parseDataVenda(v);
-        const isoKey = dt.toISOString().slice(0, 10);
-
-        if (porDia[isoKey]) {
-          porDia[isoKey].faturamento += v.valorTotal || 0;
-          porDia[isoKey].qtdVendas += 1;
-        } else {
+        for (let i = 9; i >= 0; i--) {
+          const d = new Date();
+          d.setDate(hoje.getDate() - i);
+          const isoKey = d.toISOString().slice(0, 10);
           const parts = isoKey.split('-');
           const label = `${parts[2]}/${parts[1]}`;
-          porDia[isoKey] = { isoKey, label, faturamento: v.valorTotal || 0, qtdVendas: 1 };
+          porDia[isoKey] = { isoKey, label, faturamento: 0, qtdVendas: 0 };
         }
-      });
 
-      return Object.values(porDia).sort((a, b) => a.isoKey.localeCompare(b.isoKey));
-    }
+        vendasValidas.forEach((v) => {
+          const dt = parseDataVenda(v);
+          const isoKey = dt.toISOString().slice(0, 10);
+          const valor = Number(v.valorTotal) || 0;
 
-    if (periodoGrafico === 'semana') {
-      const porSemana: Record<string, { label: string; faturamento: number; qtdVendas: number }> = {
-        Semana1: { label: 'Há 3 Semanas', faturamento: 0, qtdVendas: 0 },
-        Semana2: { label: 'Há 2 Semanas', faturamento: 0, qtdVendas: 0 },
-        Semana3: { label: 'Semana Passada', faturamento: 0, qtdVendas: 0 },
-        Semana4: { label: 'Semana Atual', faturamento: 0, qtdVendas: 0 },
-      };
+          if (porDia[isoKey]) {
+            porDia[isoKey].faturamento += valor;
+            porDia[isoKey].qtdVendas += 1;
+          } else {
+            const parts = isoKey.split('-');
+            const label = `${parts[2]}/${parts[1]}`;
+            porDia[isoKey] = { isoKey, label, faturamento: valor, qtdVendas: 1 };
+          }
+        });
 
-      const agora = hoje.getTime();
-      const umDiaMs = 24 * 60 * 60 * 1000;
+        return Object.values(porDia).sort((a, b) => a.isoKey.localeCompare(b.isoKey));
+      }
 
-      vendasValidas.forEach((v) => {
-        const dt = parseDataVenda(v);
-        const diffDias = Math.floor((agora - dt.getTime()) / umDiaMs);
+      if (periodoGrafico === 'semana') {
+        const porSemana: Record<string, { label: string; faturamento: number; qtdVendas: number }> = {
+          Semana1: { label: 'Há 3 Semanas', faturamento: 0, qtdVendas: 0 },
+          Semana2: { label: 'Há 2 Semanas', faturamento: 0, qtdVendas: 0 },
+          Semana3: { label: 'Semana Passada', faturamento: 0, qtdVendas: 0 },
+          Semana4: { label: 'Semana Atual', faturamento: 0, qtdVendas: 0 },
+        };
 
-        if (diffDias >= 0 && diffDias <= 7) {
-          porSemana['Semana4'].faturamento += v.valorTotal || 0;
-          porSemana['Semana4'].qtdVendas += 1;
-        } else if (diffDias > 7 && diffDias <= 14) {
-          porSemana['Semana3'].faturamento += v.valorTotal || 0;
-          porSemana['Semana3'].qtdVendas += 1;
-        } else if (diffDias > 14 && diffDias <= 21) {
-          porSemana['Semana2'].faturamento += v.valorTotal || 0;
-          porSemana['Semana2'].qtdVendas += 1;
-        } else if (diffDias > 21 && diffDias <= 30) {
-          porSemana['Semana1'].faturamento += v.valorTotal || 0;
-          porSemana['Semana1'].qtdVendas += 1;
+        const agora = hoje.getTime();
+        const umDiaMs = 24 * 60 * 60 * 1000;
+
+        vendasValidas.forEach((v) => {
+          const dt = parseDataVenda(v);
+          const diffDias = Math.floor((agora - dt.getTime()) / umDiaMs);
+          const valor = Number(v.valorTotal) || 0;
+
+          if (diffDias >= 0 && diffDias <= 7) {
+            porSemana['Semana4'].faturamento += valor;
+            porSemana['Semana4'].qtdVendas += 1;
+          } else if (diffDias > 7 && diffDias <= 14) {
+            porSemana['Semana3'].faturamento += valor;
+            porSemana['Semana3'].qtdVendas += 1;
+          } else if (diffDias > 14 && diffDias <= 21) {
+            porSemana['Semana2'].faturamento += valor;
+            porSemana['Semana2'].qtdVendas += 1;
+          } else if (diffDias > 21 && diffDias <= 30) {
+            porSemana['Semana1'].faturamento += valor;
+            porSemana['Semana1'].qtdVendas += 1;
+          }
+        });
+
+        return Object.values(porSemana);
+      }
+
+      if (periodoGrafico === 'mes') {
+        const nomesMeses = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+        const porMes: Record<number, { index: number; label: string; faturamento: number; qtdVendas: number }> = {};
+
+        for (let i = 0; i < 12; i++) {
+          porMes[i] = { index: i, label: nomesMeses[i], faturamento: 0, qtdVendas: 0 };
         }
-      });
 
-      return Object.values(porSemana);
-    }
+        vendasValidas.forEach((v) => {
+          const dt = parseDataVenda(v);
+          const mesIndex = dt.getMonth();
+          const valor = Number(v.valorTotal) || 0;
+          if (porMes[mesIndex]) {
+            porMes[mesIndex].faturamento += valor;
+            porMes[mesIndex].qtdVendas += 1;
+          }
+        });
 
-    if (periodoGrafico === 'mes') {
-      const nomesMeses = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
-      const porMes: Record<number, { index: number; label: string; faturamento: number; qtdVendas: number }> = {};
+        return Object.values(porMes).sort((a, b) => a.index - b.index);
+      }
 
-      for (let i = 0; i < 12; i++) {
-        porMes[i] = { index: i, label: nomesMeses[i], faturamento: 0, qtdVendas: 0 };
+      // periodoGrafico === 'ano'
+      const porAno: Record<string, { label: string; faturamento: number; qtdVendas: number }> = {};
+      const anoAtual = hoje.getFullYear();
+
+      for (let a = anoAtual - 2; a <= anoAtual; a++) {
+        porAno[String(a)] = { label: String(a), faturamento: 0, qtdVendas: 0 };
       }
 
       vendasValidas.forEach((v) => {
         const dt = parseDataVenda(v);
-        const mesIndex = dt.getMonth();
-        if (porMes[mesIndex]) {
-          porMes[mesIndex].faturamento += v.valorTotal || 0;
-          porMes[mesIndex].qtdVendas += 1;
+        const ano = String(dt.getFullYear());
+        const valor = Number(v.valorTotal) || 0;
+        if (porAno[ano]) {
+          porAno[ano].faturamento += valor;
+          porAno[ano].qtdVendas += 1;
+        } else {
+          porAno[ano] = { label: ano, faturamento: valor, qtdVendas: 1 };
         }
       });
 
-      return Object.values(porMes).sort((a, b) => a.index - b.index);
+      return Object.values(porAno).sort((a, b) => a.label.localeCompare(b.label));
+    } catch (err) {
+      console.error('Erro ao processar dadosGrafico:', err);
+      return [];
     }
-
-    // periodoGrafico === 'ano'
-    const porAno: Record<string, { label: string; faturamento: number; qtdVendas: number }> = {};
-    const anoAtual = hoje.getFullYear();
-
-    for (let a = anoAtual - 2; a <= anoAtual; a++) {
-      porAno[String(a)] = { label: String(a), faturamento: 0, qtdVendas: 0 };
-    }
-
-    vendasValidas.forEach((v) => {
-      const dt = parseDataVenda(v);
-      const ano = String(dt.getFullYear());
-      if (porAno[ano]) {
-        porAno[ano].faturamento += v.valorTotal || 0;
-        porAno[ano].qtdVendas += 1;
-      } else {
-        porAno[ano] = { label: ano, faturamento: v.valorTotal || 0, qtdVendas: 1 };
-      }
-    });
-
-    return Object.values(porAno).sort((a, b) => a.label.localeCompare(b.label));
   }, [vendasValidas, periodoGrafico]);
 
-  // 3. Ranking de Vendas: Mais e Menos Vendidos
+  // 3. Sales ranking
   const { maisVendidos, menosVendidos, resumoItens } = useMemo(() => {
-    const mapaItens: Record<
-      string,
-      { codigo: string; nome: string; qtdVendida: number; totalFaturado: number; foto?: string }
-    > = {};
+    try {
+      const mapaItens: Record<
+        string,
+        { codigo: string; nome: string; qtdVendida: number; totalFaturado: number; foto?: string }
+      > = {};
 
-    vendasValidas.forEach((v) => {
-      v.itens.forEach((item) => {
-        const cod = item.codigo || item.nome;
-        if (!mapaItens[cod]) {
-          mapaItens[cod] = {
-            codigo: item.codigo,
-            nome: item.nome,
-            qtdVendida: 0,
-            totalFaturado: 0,
-            foto: item.foto,
-          };
-        }
-        mapaItens[cod].qtdVendida += item.quantidade || 0;
-        mapaItens[cod].totalFaturado += item.subtotal || 0;
+      vendasValidas.forEach((v) => {
+        const itens = Array.isArray(v?.itens) ? v.itens : [];
+        itens.forEach((item) => {
+          if (!item) return;
+          const cod = item.codigo || item.nome || 'SEM_CODIGO';
+          if (!mapaItens[cod]) {
+            mapaItens[cod] = {
+              codigo: item.codigo || cod,
+              nome: item.nome || 'Produto sem nome',
+              qtdVendida: 0,
+              totalFaturado: 0,
+              foto: item.foto,
+            };
+          }
+          const qtd = Number(item.quantidade) || 0;
+          const subtotal = Number(item.subtotal) || (qtd * (Number(item.preco_unitario) || 0)) || 0;
+          mapaItens[cod].qtdVendida += qtd;
+          mapaItens[cod].totalFaturado += subtotal;
+        });
       });
-    });
 
-    const lista = Object.values(mapaItens);
-    const ordenadosMais = [...lista].sort((a, b) => b.qtdVendida - a.qtdVendida);
-    const ordenadosMenos = [...lista].sort((a, b) => a.qtdVendida - b.qtdVendida);
+      const lista = Object.values(mapaItens);
+      const ordenadosMais = [...lista].sort((a, b) => b.qtdVendida - a.qtdVendida);
+      const ordenadosMenos = [...lista].sort((a, b) => a.qtdVendida - b.qtdVendida);
 
-    return {
-      maisVendidos: ordenadosMais.slice(0, 10),
-      menosVendidos: ordenadosMenos.slice(0, 10),
-      resumoItens: mapaItens,
-    };
+      return {
+        maisVendidos: ordenadosMais.slice(0, 10),
+        menosVendidos: ordenadosMenos.slice(0, 10),
+        resumoItens: mapaItens,
+      };
+    } catch (err) {
+      console.error('Erro ao calcular ranking de vendas:', err);
+      return { maisVendidos: [], menosVendidos: [], resumoItens: {} };
+    }
   }, [vendasValidas]);
 
-  // 4. Inteligência de Estoque & Conselhos ao Dono do Supermercado
+  // 4. Inventory Intelligence
   const insightsEstoque = useMemo(() => {
-    const recomendacaoNaoInvestir: {
-      codigo: string;
-      nome: string;
-      qtdEstoque: number;
-      qtdVendida: number;
-      precoVenda: number;
-      foto?: string;
-      valorParado: number;
-      motivo: string;
-    }[] = [];
+    try {
+      const recomendacaoNaoInvestir: {
+        codigo: string;
+        nome: string;
+        qtdEstoque: number;
+        qtdVendida: number;
+        precoVenda: number;
+        foto?: string;
+        valorParado: number;
+        motivo: string;
+      }[] = [];
 
-    const recomendacaoInvestirMais: {
-      codigo: string;
-      nome: string;
-      qtdEstoque: number;
-      qtdVendida: number;
-      precoVenda: number;
-      foto?: string;
-      motivo: string;
-    }[] = [];
+      const recomendacaoInvestirMais: {
+        codigo: string;
+        nome: string;
+        qtdEstoque: number;
+        qtdVendida: number;
+        precoVenda: number;
+        foto?: string;
+        motivo: string;
+      }[] = [];
 
-    // Agrupar estoque por código
-    const estoqueAgrupado: Record<string, { codigo: string; nome: string; qtdTotal: number; precoVenda: number; foto?: string }> = {};
-    if (estoque) {
-      estoque.forEach((e) => {
-        if (!estoqueAgrupado[e.codigo]) {
-          estoqueAgrupado[e.codigo] = {
-            codigo: e.codigo,
-            nome: e.nome,
-            qtdTotal: 0,
-            precoVenda: e.preco_venda || 0,
-            foto: e.foto,
-          };
+      const estoqueAgrupado: Record<string, { codigo: string; nome: string; qtdTotal: number; precoVenda: number; foto?: string }> = {};
+
+      if (Array.isArray(estoque)) {
+        estoque.forEach((e) => {
+          if (!e) return;
+          const cod = e.codigo || e.nome || 'SEM_CODIGO';
+          if (!estoqueAgrupado[cod]) {
+            estoqueAgrupado[cod] = {
+              codigo: cod,
+              nome: e.nome || 'Produto',
+              qtdTotal: 0,
+              precoVenda: Number(e.preco_venda) || 0,
+              foto: e.foto,
+            };
+          }
+          estoqueAgrupado[cod].qtdTotal += Number(e.quantidade) || 0;
+        });
+      }
+
+      let totalCapitalParado = 0;
+
+      Object.values(estoqueAgrupado).forEach((itemEst) => {
+        const vendaInfo = resumoItens[itemEst.codigo];
+        const qtdVendida = vendaInfo ? vendaInfo.qtdVendida : 0;
+        const valorEstoqueParado = itemEst.qtdTotal * itemEst.precoVenda;
+
+        if (itemEst.qtdTotal >= 3 && qtdVendida <= 2) {
+          totalCapitalParado += valorEstoqueParado;
+          recomendacaoNaoInvestir.push({
+            codigo: itemEst.codigo,
+            nome: itemEst.nome,
+            qtdEstoque: itemEst.qtdTotal,
+            qtdVendida,
+            precoVenda: itemEst.precoVenda,
+            foto: itemEst.foto,
+            valorParado: valorEstoqueParado,
+            motivo: `Possui ${itemEst.qtdTotal} un paradas no estoque (R$ ${valorEstoqueParado.toFixed(2)} em mercadoria), mas teve apenas ${qtdVendida} venda(s). Evite novas compras deste item ou realize uma promoção!`,
+          });
         }
-        estoqueAgrupado[e.codigo].qtdTotal += e.quantidade || 0;
+
+        if (itemEst.qtdTotal <= 5 || (qtdVendida >= 2 && itemEst.qtdTotal <= 10)) {
+          recomendacaoInvestirMais.push({
+            codigo: itemEst.codigo,
+            nome: itemEst.nome,
+            qtdEstoque: itemEst.qtdTotal,
+            qtdVendida,
+            precoVenda: itemEst.precoVenda,
+            foto: itemEst.foto,
+            motivo: `Produto com boa procura (${qtdVendida} un vendidas) e estoque reduzido (${itemEst.qtdTotal} un em loja). Vale a pena reabastecer para não perder vendas!`,
+          });
+        }
       });
+
+      recomendacaoNaoInvestir.sort((a, b) => b.valorParado - a.valorParado);
+      recomendacaoInvestirMais.sort((a, b) => a.qtdEstoque - b.qtdEstoque);
+
+      return {
+        naoInvestir: recomendacaoNaoInvestir,
+        investirMais: recomendacaoInvestirMais,
+        totalCapitalParado,
+      };
+    } catch (err) {
+      console.error('Erro ao processar inteligência de estoque:', err);
+      return { naoInvestir: [], investirMais: [], totalCapitalParado: 0 };
     }
-
-    let totalCapitalParado = 0;
-
-    Object.values(estoqueAgrupado).forEach((itemEst) => {
-      const vendaInfo = resumoItens[itemEst.codigo];
-      const qtdVendida = vendaInfo ? vendaInfo.qtdVendida : 0;
-      const valorEstoqueParado = itemEst.qtdTotal * itemEst.precoVenda;
-
-      // Regra 1: Tem estoque significativo (>= 3 un) mas pouca ou nenhuma venda (<= 2 un)
-      if (itemEst.qtdTotal >= 3 && qtdVendida <= 2) {
-        totalCapitalParado += valorEstoqueParado;
-        recomendacaoNaoInvestir.push({
-          codigo: itemEst.codigo,
-          nome: itemEst.nome,
-          qtdEstoque: itemEst.qtdTotal,
-          qtdVendida,
-          precoVenda: itemEst.precoVenda,
-          foto: itemEst.foto,
-          valorParado: valorEstoqueParado,
-          motivo: `Possui ${itemEst.qtdTotal} un paradas no estoque (R$ ${valorEstoqueParado.toFixed(2)} em mercadoria), mas teve apenas ${qtdVendida} venda(s). Evite novas compras deste item ou realize uma promoção!`,
-        });
-      }
-
-      // Regra 2: Alta rotação ou baixíssimo estoque (<= 5 un) com vendas constantes (>= 1 un)
-      if (itemEst.qtdTotal <= 5 || (qtdVendida >= 2 && itemEst.qtdTotal <= 10)) {
-        recomendacaoInvestirMais.push({
-          codigo: itemEst.codigo,
-          nome: itemEst.nome,
-          qtdEstoque: itemEst.qtdTotal,
-          qtdVendida,
-          precoVenda: itemEst.precoVenda,
-          foto: itemEst.foto,
-          motivo: `Produto com boa procura (${qtdVendida} un vendidas) e estoque reduzido (${itemEst.qtdTotal} un em loja). Vale a pena reabastecer para não perder vendas!`,
-        });
-      }
-    });
-
-    // Ordenar recomendações
-    recomendacaoNaoInvestir.sort((a, b) => b.valorParado - a.valorParado);
-    recomendacaoInvestirMais.sort((a, b) => a.qtdEstoque - b.qtdEstoque);
-
-    return {
-      naoInvestir: recomendacaoNaoInvestir,
-      investirMais: recomendacaoInvestirMais,
-      totalCapitalParado,
-    };
   }, [estoque, resumoItens]);
 
-  // Faturamento Total Acumulado
-  const faturamentoTotalGeral = vendasValidas.reduce((acc, v) => acc + (v.valorTotal || 0), 0);
+  const faturamentoTotalGeral = vendasValidas.reduce((acc, v) => acc + (Number(v.valorTotal) || 0), 0);
 
   return (
-    <div className="tela-relatorio-cheia" style={{ display: 'flex', zIndex: 500 }}>
+    <div
+      style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        backgroundColor: '#f1f5f9',
+        zIndex: 9999,
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden',
+      }}
+    >
       {/* CABEÇALHO */}
       <div className="cabecalho-relatorio">
         <h2>📈 Gráficos de Vendas & Inteligência de Estoque ({nomeLoja})</h2>
@@ -443,40 +485,46 @@ export const GraficosVendasModal: React.FC<GraficosVendasModalProps> = ({
                 </div>
               </div>
 
-              <div style={{ width: '100%', height: 320, minHeight: 320 }}>
-                <ResponsiveContainer width="100%" height="100%">
-                  {tipoGrafico === 'area' ? (
-                    <AreaChart data={dadosGrafico} margin={{ top: 10, right: 20, left: 10, bottom: 0 }}>
-                      <defs>
-                        <linearGradient id="colorFaturamento" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#0284c7" stopOpacity={0.8} />
-                          <stop offset="95%" stopColor="#0284c7" stopOpacity={0.05} />
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                      <XAxis dataKey="label" stroke="#64748b" fontSize={12} tickLine={false} />
-                      <YAxis stroke="#64748b" fontSize={12} tickLine={false} tickFormatter={(v) => `R$${v}`} />
-                      <Tooltip
-                        formatter={(val: any) => [`R$ ${Number(val).toFixed(2).replace('.', ',')}`, 'Faturamento']}
-                        labelFormatter={(lbl) => `Período: ${lbl}`}
-                        contentStyle={{ background: '#ffffff', borderRadius: '8px', border: '1px solid #cbd5e1' }}
-                      />
-                      <Area type="monotone" dataKey="faturamento" stroke="#0284c7" strokeWidth={3} fillOpacity={1} fill="url(#colorFaturamento)" name="Faturamento (R$)" />
-                    </AreaChart>
-                  ) : (
-                    <BarChart data={dadosGrafico} margin={{ top: 10, right: 20, left: 10, bottom: 0 }}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                      <XAxis dataKey="label" stroke="#64748b" fontSize={12} tickLine={false} />
-                      <YAxis stroke="#64748b" fontSize={12} tickLine={false} tickFormatter={(v) => `R$${v}`} />
-                      <Tooltip
-                        formatter={(val: any) => [`R$ ${Number(val).toFixed(2).replace('.', ',')}`, 'Faturamento']}
-                        labelFormatter={(lbl) => `Período: ${lbl}`}
-                        contentStyle={{ background: '#ffffff', borderRadius: '8px', border: '1px solid #cbd5e1' }}
-                      />
-                      <Bar dataKey="faturamento" fill="#0284c7" radius={[6, 6, 0, 0]} name="Faturamento (R$)" />
-                    </BarChart>
-                  )}
-                </ResponsiveContainer>
+              <div style={{ width: '100%', height: 300, minHeight: 300 }}>
+                {dadosGrafico.length === 0 ? (
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#64748b' }}>
+                    Nenhum dado registrado para o período selecionado.
+                  </div>
+                ) : (
+                  <ResponsiveContainer width="100%" height={300}>
+                    {tipoGrafico === 'area' ? (
+                      <AreaChart data={dadosGrafico} margin={{ top: 10, right: 20, left: 10, bottom: 0 }}>
+                        <defs>
+                          <linearGradient id="colorFaturamento" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#0284c7" stopOpacity={0.8} />
+                            <stop offset="95%" stopColor="#0284c7" stopOpacity={0.05} />
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                        <XAxis dataKey="label" stroke="#64748b" fontSize={12} tickLine={false} />
+                        <YAxis stroke="#64748b" fontSize={12} tickLine={false} tickFormatter={(v) => `R$${v}`} />
+                        <Tooltip
+                          formatter={(val: any) => [`R$ ${Number(val).toFixed(2).replace('.', ',')}`, 'Faturamento']}
+                          labelFormatter={(lbl) => `Período: ${lbl}`}
+                          contentStyle={{ background: '#ffffff', borderRadius: '8px', border: '1px solid #cbd5e1' }}
+                        />
+                        <Area type="monotone" dataKey="faturamento" stroke="#0284c7" strokeWidth={3} fillOpacity={1} fill="url(#colorFaturamento)" name="Faturamento (R$)" />
+                      </AreaChart>
+                    ) : (
+                      <BarChart data={dadosGrafico} margin={{ top: 10, right: 20, left: 10, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                        <XAxis dataKey="label" stroke="#64748b" fontSize={12} tickLine={false} />
+                        <YAxis stroke="#64748b" fontSize={12} tickLine={false} tickFormatter={(v) => `R$${v}`} />
+                        <Tooltip
+                          formatter={(val: any) => [`R$ ${Number(val).toFixed(2).replace('.', ',')}`, 'Faturamento']}
+                          labelFormatter={(lbl) => `Período: ${lbl}`}
+                          contentStyle={{ background: '#ffffff', borderRadius: '8px', border: '1px solid #cbd5e1' }}
+                        />
+                        <Bar dataKey="faturamento" fill="#0284c7" radius={[6, 6, 0, 0]} name="Faturamento (R$)" />
+                      </BarChart>
+                    )}
+                  </ResponsiveContainer>
+                )}
               </div>
             </div>
           </div>
