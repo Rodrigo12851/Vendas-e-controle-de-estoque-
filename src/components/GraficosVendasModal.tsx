@@ -9,6 +9,7 @@ import {
   CartesianGrid,
   AreaChart,
   Area,
+  Legend,
 } from 'recharts';
 import { Venda, ItemEstoque } from '../types';
 
@@ -28,12 +29,20 @@ export const GraficosVendasModal: React.FC<GraficosVendasModalProps> = ({
   nomeLoja,
 }) => {
   const [periodoGrafico, setPeriodoGrafico] = useState<'dia' | 'semana' | 'mes' | 'ano'>('mes');
+  const [tipoGrafico, setTipoGrafico] = useState<'area' | 'barras'>('area');
   const [abaAtiva, setAbaAtiva] = useState<'grafico' | 'ranking' | 'inteligencia'>('grafico');
 
   if (!visivel) return null;
 
   // 1. Considerar apenas vendas concluídas para faturamento
-  const vendasValidas = vendas.filter((v) => v.status === 'concluida');
+  const vendasValidas = vendas ? vendas.filter((v) => v.status === 'concluida') : [];
+
+  // Helper para converter string de data ou timestamp em Date seguro
+  const parseDataVenda = (v: Venda): Date => {
+    if (v.timestamp) return new Date(v.timestamp);
+    if (v.data) return new Date(v.data + 'T12:00:00');
+    return new Date();
+  };
 
   // 2. Agrupar Faturamento por Período (Dia, Semana, Mês, Ano)
   const dadosGrafico = useMemo(() => {
@@ -41,60 +50,61 @@ export const GraficosVendasModal: React.FC<GraficosVendasModalProps> = ({
 
     if (periodoGrafico === 'dia') {
       // Agrupar por data nos últimos 7 a 14 dias
-      const porDia: Record<string, { label: string; faturamento: number; qtdVendas: number }> = {};
-      
-      // Inicializar últimos 7 dias
-      for (let i = 6; i >= 0; i--) {
+      const porDia: Record<string, { isoKey: string; label: string; faturamento: number; qtdVendas: number }> = {};
+
+      // Inicializar últimos 10 dias em ordem cronológica
+      for (let i = 9; i >= 0; i--) {
         const d = new Date();
         d.setDate(hoje.getDate() - i);
-        const iso = d.toISOString().slice(0, 10);
-        const parts = iso.split('-');
+        const isoKey = d.toISOString().slice(0, 10);
+        const parts = isoKey.split('-');
         const label = `${parts[2]}/${parts[1]}`;
-        porDia[iso] = { label, faturamento: 0, qtdVendas: 0 };
+        porDia[isoKey] = { isoKey, label, faturamento: 0, qtdVendas: 0 };
       }
 
       vendasValidas.forEach((v) => {
-        if (porDia[v.data]) {
-          porDia[v.data].faturamento += v.valorTotal;
-          porDia[v.data].qtdVendas += 1;
+        const dt = parseDataVenda(v);
+        const isoKey = dt.toISOString().slice(0, 10);
+
+        if (porDia[isoKey]) {
+          porDia[isoKey].faturamento += v.valorTotal || 0;
+          porDia[isoKey].qtdVendas += 1;
         } else {
-          // caso seja data válida no mesmo mês
-          const parts = v.data.split('-');
-          if (parts.length === 3) {
-            const label = `${parts[2]}/${parts[1]}`;
-            porDia[v.data] = { label, faturamento: v.valorTotal, qtdVendas: 1 };
-          }
+          const parts = isoKey.split('-');
+          const label = `${parts[2]}/${parts[1]}`;
+          porDia[isoKey] = { isoKey, label, faturamento: v.valorTotal || 0, qtdVendas: 1 };
         }
       });
 
-      return Object.values(porDia).sort((a, b) => a.label.localeCompare(b.label));
+      return Object.values(porDia).sort((a, b) => a.isoKey.localeCompare(b.isoKey));
     }
 
     if (periodoGrafico === 'semana') {
-      // Agrupar por semana do ano ou últimas 4 semanas
       const porSemana: Record<string, { label: string; faturamento: number; qtdVendas: number }> = {
-        Semana1: { label: 'Semana 1', faturamento: 0, qtdVendas: 0 },
-        Semana2: { label: 'Semana 2', faturamento: 0, qtdVendas: 0 },
-        Semana3: { label: 'Semana 3', faturamento: 0, qtdVendas: 0 },
-        Semana4: { label: 'Semana 4 (Atual)', faturamento: 0, qtdVendas: 0 },
+        Semana1: { label: 'Há 3 Semanas', faturamento: 0, qtdVendas: 0 },
+        Semana2: { label: 'Há 2 Semanas', faturamento: 0, qtdVendas: 0 },
+        Semana3: { label: 'Semana Passada', faturamento: 0, qtdVendas: 0 },
+        Semana4: { label: 'Semana Atual', faturamento: 0, qtdVendas: 0 },
       };
 
       const agora = hoje.getTime();
       const umDiaMs = 24 * 60 * 60 * 1000;
 
       vendasValidas.forEach((v) => {
-        const diffDias = Math.floor((agora - v.timestamp) / umDiaMs);
-        if (diffDias <= 7) {
-          porSemana['Semana4'].faturamento += v.valorTotal;
+        const dt = parseDataVenda(v);
+        const diffDias = Math.floor((agora - dt.getTime()) / umDiaMs);
+
+        if (diffDias >= 0 && diffDias <= 7) {
+          porSemana['Semana4'].faturamento += v.valorTotal || 0;
           porSemana['Semana4'].qtdVendas += 1;
-        } else if (diffDias <= 14) {
-          porSemana['Semana3'].faturamento += v.valorTotal;
+        } else if (diffDias > 7 && diffDias <= 14) {
+          porSemana['Semana3'].faturamento += v.valorTotal || 0;
           porSemana['Semana3'].qtdVendas += 1;
-        } else if (diffDias <= 21) {
-          porSemana['Semana2'].faturamento += v.valorTotal;
+        } else if (diffDias > 14 && diffDias <= 21) {
+          porSemana['Semana2'].faturamento += v.valorTotal || 0;
           porSemana['Semana2'].qtdVendas += 1;
-        } else if (diffDias <= 28) {
-          porSemana['Semana1'].faturamento += v.valorTotal;
+        } else if (diffDias > 21 && diffDias <= 30) {
+          porSemana['Semana1'].faturamento += v.valorTotal || 0;
           porSemana['Semana1'].qtdVendas += 1;
         }
       });
@@ -103,24 +113,23 @@ export const GraficosVendasModal: React.FC<GraficosVendasModalProps> = ({
     }
 
     if (periodoGrafico === 'mes') {
-      // Agrupar por meses do ano
       const nomesMeses = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
-      const porMes: Record<number, { label: string; faturamento: number; qtdVendas: number }> = {};
+      const porMes: Record<number, { index: number; label: string; faturamento: number; qtdVendas: number }> = {};
 
       for (let i = 0; i < 12; i++) {
-        porMes[i] = { label: nomesMeses[i], faturamento: 0, qtdVendas: 0 };
+        porMes[i] = { index: i, label: nomesMeses[i], faturamento: 0, qtdVendas: 0 };
       }
 
       vendasValidas.forEach((v) => {
-        const dateObj = new Date(v.timestamp || v.data);
-        const mesIndex = dateObj.getMonth();
+        const dt = parseDataVenda(v);
+        const mesIndex = dt.getMonth();
         if (porMes[mesIndex]) {
-          porMes[mesIndex].faturamento += v.valorTotal;
+          porMes[mesIndex].faturamento += v.valorTotal || 0;
           porMes[mesIndex].qtdVendas += 1;
         }
       });
 
-      return Object.values(porMes);
+      return Object.values(porMes).sort((a, b) => a.index - b.index);
     }
 
     // periodoGrafico === 'ano'
@@ -132,20 +141,20 @@ export const GraficosVendasModal: React.FC<GraficosVendasModalProps> = ({
     }
 
     vendasValidas.forEach((v) => {
-      const parts = v.data.split('-');
-      const ano = parts[0];
+      const dt = parseDataVenda(v);
+      const ano = String(dt.getFullYear());
       if (porAno[ano]) {
-        porAno[ano].faturamento += v.valorTotal;
+        porAno[ano].faturamento += v.valorTotal || 0;
         porAno[ano].qtdVendas += 1;
-      } else if (ano) {
-        porAno[ano] = { label: ano, faturamento: v.valorTotal, qtdVendas: 1 };
+      } else {
+        porAno[ano] = { label: ano, faturamento: v.valorTotal || 0, qtdVendas: 1 };
       }
     });
 
-    return Object.values(porAno);
+    return Object.values(porAno).sort((a, b) => a.label.localeCompare(b.label));
   }, [vendasValidas, periodoGrafico]);
 
-  // 3. Totalizadores de Itens Saídos
+  // 3. Ranking de Vendas: Mais e Menos Vendidos
   const { maisVendidos, menosVendidos, resumoItens } = useMemo(() => {
     const mapaItens: Record<
       string,
@@ -154,8 +163,9 @@ export const GraficosVendasModal: React.FC<GraficosVendasModalProps> = ({
 
     vendasValidas.forEach((v) => {
       v.itens.forEach((item) => {
-        if (!mapaItens[item.codigo]) {
-          mapaItens[item.codigo] = {
+        const cod = item.codigo || item.nome;
+        if (!mapaItens[cod]) {
+          mapaItens[cod] = {
             codigo: item.codigo,
             nome: item.nome,
             qtdVendida: 0,
@@ -163,8 +173,8 @@ export const GraficosVendasModal: React.FC<GraficosVendasModalProps> = ({
             foto: item.foto,
           };
         }
-        mapaItens[item.codigo].qtdVendida += item.quantidade;
-        mapaItens[item.codigo].totalFaturado += item.subtotal;
+        mapaItens[cod].qtdVendida += item.quantidade || 0;
+        mapaItens[cod].totalFaturado += item.subtotal || 0;
       });
     });
 
@@ -173,21 +183,22 @@ export const GraficosVendasModal: React.FC<GraficosVendasModalProps> = ({
     const ordenadosMenos = [...lista].sort((a, b) => a.qtdVendida - b.qtdVendida);
 
     return {
-      maisVendidos: ordenadosMais.slice(0, 8),
-      menosVendidos: ordenadosMenos.slice(0, 8),
+      maisVendidos: ordenadosMais.slice(0, 10),
+      menosVendidos: ordenadosMenos.slice(0, 10),
       resumoItens: mapaItens,
     };
   }, [vendasValidas]);
 
-  // 4. Inteligência de Estoque para o Dono do Supermercado
+  // 4. Inteligência de Estoque & Conselhos ao Dono do Supermercado
   const insightsEstoque = useMemo(() => {
-    // Cruzar estoque atual com vendas do mês
     const recomendacaoNaoInvestir: {
       codigo: string;
       nome: string;
       qtdEstoque: number;
       qtdVendida: number;
+      precoVenda: number;
       foto?: string;
+      valorParado: number;
       motivo: string;
     }[] = [];
 
@@ -196,59 +207,80 @@ export const GraficosVendasModal: React.FC<GraficosVendasModalProps> = ({
       nome: string;
       qtdEstoque: number;
       qtdVendida: number;
+      precoVenda: number;
       foto?: string;
       motivo: string;
     }[] = [];
 
     // Agrupar estoque por código
-    const estoqueAgrupado: Record<string, { codigo: string; nome: string; qtdTotal: number; foto?: string }> = {};
-    estoque.forEach((e) => {
-      if (!estoqueAgrupado[e.codigo]) {
-        estoqueAgrupado[e.codigo] = { codigo: e.codigo, nome: e.nome, qtdTotal: 0, foto: e.foto };
-      }
-      estoqueAgrupado[e.codigo].qtdTotal += e.quantidade;
-    });
+    const estoqueAgrupado: Record<string, { codigo: string; nome: string; qtdTotal: number; precoVenda: number; foto?: string }> = {};
+    if (estoque) {
+      estoque.forEach((e) => {
+        if (!estoqueAgrupado[e.codigo]) {
+          estoqueAgrupado[e.codigo] = {
+            codigo: e.codigo,
+            nome: e.nome,
+            qtdTotal: 0,
+            precoVenda: e.preco_venda || 0,
+            foto: e.foto,
+          };
+        }
+        estoqueAgrupado[e.codigo].qtdTotal += e.quantidade || 0;
+      });
+    }
+
+    let totalCapitalParado = 0;
 
     Object.values(estoqueAgrupado).forEach((itemEst) => {
       const vendaInfo = resumoItens[itemEst.codigo];
       const qtdVendida = vendaInfo ? vendaInfo.qtdVendida : 0;
+      const valorEstoqueParado = itemEst.qtdTotal * itemEst.precoVenda;
 
-      // Se tem muito estoque (>= 15 un) mas pouca ou nenhuma venda (<= 2 un)
-      if (itemEst.qtdTotal >= 10 && qtdVendida <= 2) {
+      // Regra 1: Tem estoque significativo (>= 3 un) mas pouca ou nenhuma venda (<= 2 un)
+      if (itemEst.qtdTotal >= 3 && qtdVendida <= 2) {
+        totalCapitalParado += valorEstoqueParado;
         recomendacaoNaoInvestir.push({
           codigo: itemEst.codigo,
           nome: itemEst.nome,
           qtdEstoque: itemEst.qtdTotal,
           qtdVendida,
+          precoVenda: itemEst.precoVenda,
           foto: itemEst.foto,
-          motivo: `Possui ${itemEst.qtdTotal} unidades paradas no estoque, mas vendeu apenas ${qtdVendida} un no período. Evite comprar mais ou crie promoções!`,
+          valorParado: valorEstoqueParado,
+          motivo: `Possui ${itemEst.qtdTotal} un paradas no estoque (R$ ${valorEstoqueParado.toFixed(2)} em mercadoria), mas teve apenas ${qtdVendida} venda(s). Evite novas compras deste item ou realize uma promoção!`,
         });
       }
 
-      // Se tem alta venda (>= 5 un) mas pouco estoque (<= 5 un)
-      if (qtdVendida >= 3 && itemEst.qtdTotal <= 8) {
+      // Regra 2: Alta rotação ou baixíssimo estoque (<= 5 un) com vendas constantes (>= 1 un)
+      if (itemEst.qtdTotal <= 5 || (qtdVendida >= 2 && itemEst.qtdTotal <= 10)) {
         recomendacaoInvestirMais.push({
           codigo: itemEst.codigo,
           nome: itemEst.nome,
           qtdEstoque: itemEst.qtdTotal,
           qtdVendida,
+          precoVenda: itemEst.precoVenda,
           foto: itemEst.foto,
-          motivo: `Alta rotatividade! Vendeu ${qtdVendida} un e restam apenas ${itemEst.qtdTotal} un em estoque. Reponha estoque para não perder vendas!`,
+          motivo: `Produto com boa procura (${qtdVendida} un vendidas) e estoque reduzido (${itemEst.qtdTotal} un em loja). Vale a pena reabastecer para não perder vendas!`,
         });
       }
     });
 
+    // Ordenar recomendações
+    recomendacaoNaoInvestir.sort((a, b) => b.valorParado - a.valorParado);
+    recomendacaoInvestirMais.sort((a, b) => a.qtdEstoque - b.qtdEstoque);
+
     return {
-      naoInvestir: recomendacaoNaoInvestir.slice(0, 6),
-      investirMais: recomendacaoInvestirMais.slice(0, 6),
+      naoInvestir: recomendacaoNaoInvestir,
+      investirMais: recomendacaoInvestirMais,
+      totalCapitalParado,
     };
   }, [estoque, resumoItens]);
 
   // Faturamento Total Acumulado
-  const faturamentoTotalGeral = vendasValidas.reduce((acc, v) => acc + v.valorTotal, 0);
+  const faturamentoTotalGeral = vendasValidas.reduce((acc, v) => acc + (v.valorTotal || 0), 0);
 
   return (
-    <div className="tela-relatorio-cheia" style={{ display: 'flex', zIndex: 450 }}>
+    <div className="tela-relatorio-cheia" style={{ display: 'flex', zIndex: 500 }}>
       {/* CABEÇALHO */}
       <div className="cabecalho-relatorio">
         <h2>📈 Gráficos de Vendas & Inteligência de Estoque ({nomeLoja})</h2>
@@ -274,8 +306,9 @@ export const GraficosVendasModal: React.FC<GraficosVendasModalProps> = ({
             }}
             onClick={() => setAbaAtiva('grafico')}
           >
-            📊 Faturamento por Período
+            📊 Faturamento & Desempenho
           </button>
+
           <button
             style={{
               padding: '8px 16px',
@@ -291,6 +324,7 @@ export const GraficosVendasModal: React.FC<GraficosVendasModalProps> = ({
           >
             🏆 Produtos Mais & Menos Vendidos
           </button>
+
           <button
             style={{
               padding: '8px 16px',
@@ -304,73 +338,144 @@ export const GraficosVendasModal: React.FC<GraficosVendasModalProps> = ({
             }}
             onClick={() => setAbaAtiva('inteligencia')}
           >
-            💡 Inteligência de Estoque (Dono do Supermercado)
+            💡 Inteligência de Estoque (Painel do Dono)
           </button>
         </div>
 
         {/* ABA 1: GRÁFICOS DE FATURAMENTO */}
         {abaAtiva === 'grafico' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            {/* SELETOR DE TEMPO */}
-            <div style={{ background: '#ffffff', padding: '14px', borderRadius: '10px', border: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
-              <div>
-                <span style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: 600 }}>Visualizar Faturamento por:</span>
+            {/* CONTROLES E SELETORES */}
+            <div
+              style={{
+                background: '#ffffff',
+                padding: '14px',
+                borderRadius: '10px',
+                border: '1px solid #e2e8f0',
+                display: 'flex',
+                justify: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: '12px',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <span style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: 600 }}>Período:</span>
+                <div style={{ display: 'flex', gap: '4px' }}>
+                  {(['dia', 'semana', 'mes', 'ano'] as const).map((p) => (
+                    <button
+                      key={p}
+                      style={{
+                        padding: '6px 12px',
+                        borderRadius: '6px',
+                        border: '1px solid #cbd5e1',
+                        fontSize: '0.82rem',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        background: periodoGrafico === p ? '#0284c7' : '#ffffff',
+                        color: periodoGrafico === p ? '#ffffff' : '#334155',
+                      }}
+                      onClick={() => setPeriodoGrafico(p)}
+                    >
+                      {p === 'dia' && '📅 Por Dia'}
+                      {p === 'semana' && '📅 Por Semana'}
+                      {p === 'mes' && '📅 Por Mês'}
+                      {p === 'ano' && '📅 Por Ano'}
+                    </button>
+                  ))}
+                </div>
               </div>
-              <div style={{ display: 'flex', gap: '6px' }}>
-                {(['dia', 'semana', 'mes', 'ano'] as const).map((p) => (
-                  <button
-                    key={p}
-                    style={{
-                      padding: '6px 12px',
-                      borderRadius: '6px',
-                      border: '1px solid #cbd5e1',
-                      fontSize: '0.82rem',
-                      fontWeight: 600,
-                      cursor: 'pointer',
-                      background: periodoGrafico === p ? '#0284c7' : '#ffffff',
-                      color: periodoGrafico === p ? '#ffffff' : '#334155',
-                    }}
-                    onClick={() => setPeriodoGrafico(p)}
-                  >
-                    {p === 'dia' && '📅 Por Dia'}
-                    {p === 'semana' && '📅 Por Semana'}
-                    {p === 'mes' && '📅 Por Mês'}
-                    {p === 'ano' && '📅 Por Ano'}
-                  </button>
-                ))}
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ fontSize: '0.82rem', color: '#64748b', fontWeight: 600 }}>Visualização:</span>
+                <button
+                  style={{
+                    padding: '4px 10px',
+                    borderRadius: '6px',
+                    border: '1px solid #cbd5e1',
+                    fontSize: '0.8rem',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    background: tipoGrafico === 'area' ? '#e0f2fe' : '#ffffff',
+                    color: tipoGrafico === 'area' ? '#0369a1' : '#475569',
+                  }}
+                  onClick={() => setTipoGrafico('area')}
+                >
+                  📈 Linha / Área
+                </button>
+                <button
+                  style={{
+                    padding: '4px 10px',
+                    borderRadius: '6px',
+                    border: '1px solid #cbd5e1',
+                    fontSize: '0.8rem',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    background: tipoGrafico === 'barras' ? '#e0f2fe' : '#ffffff',
+                    color: tipoGrafico === 'barras' ? '#0369a1' : '#475569',
+                  }}
+                  onClick={() => setTipoGrafico('barras')}
+                >
+                  📊 Colunas / Barras
+                </button>
               </div>
             </div>
 
-            {/* CONTAINER GRÁFICO RECHARTS */}
-            <div style={{ background: '#ffffff', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px' }}>
+            {/* CONTAINER DO GRÁFICO PRINCIPAL */}
+            <div
+              style={{
+                background: '#ffffff',
+                padding: '20px',
+                borderRadius: '12px',
+                border: '1px solid #e2e8f0',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
+                minHeight: '360px',
+                display: 'flex',
+                flexDirection: 'column',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '8px' }}>
                 <h3 style={{ fontSize: '1rem', fontWeight: 700, color: '#0f172a' }}>
-                  Faturamento Acumulado ({periodoGrafico.toUpperCase()})
+                  Faturamento de Vendas — Vista por {periodoGrafico.toUpperCase()}
                 </h3>
-                <span style={{ fontSize: '0.9rem', color: '#16a34a', fontWeight: 700 }}>
-                  Total: R$ {faturamentoTotalGeral.toFixed(2).replace('.', ',')}
-                </span>
+                <div style={{ fontSize: '0.95rem', color: '#16a34a', fontWeight: 700, background: '#f0fdf4', padding: '6px 12px', borderRadius: '8px', border: '1px solid #bbf7d0' }}>
+                  Faturamento Total: R$ {faturamentoTotalGeral.toFixed(2).replace('.', ',')}
+                </div>
               </div>
 
-              <div style={{ width: '100%', height: 320 }}>
+              <div style={{ width: '100%', height: 320, minHeight: 320 }}>
                 <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={dadosGrafico} margin={{ top: 10, right: 20, left: 10, bottom: 0 }}>
-                    <defs>
-                      <linearGradient id="colorFaturamento" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#0284c7" stopOpacity={0.8} />
-                        <stop offset="95%" stopColor="#0284c7" stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                    <XAxis dataKey="label" stroke="#64748b" fontSize={12} tickLine={false} />
-                    <YAxis stroke="#64748b" fontSize={12} tickLine={false} tickFormatter={(v) => `R$${v}`} />
-                    <Tooltip
-                      formatter={(val: any) => [`R$ ${Number(val).toFixed(2).replace('.', ',')}`, 'Faturamento']}
-                      labelFormatter={(lbl) => `Período: ${lbl}`}
-                      contentStyle={{ background: '#ffffff', borderRadius: '8px', border: '1px solid #cbd5e1' }}
-                    />
-                    <Area type="monotone" dataKey="faturamento" stroke="#0284c7" strokeWidth={3} fillOpacity={1} fill="url(#colorFaturamento)" />
-                  </AreaChart>
+                  {tipoGrafico === 'area' ? (
+                    <AreaChart data={dadosGrafico} margin={{ top: 10, right: 20, left: 10, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="colorFaturamento" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#0284c7" stopOpacity={0.8} />
+                          <stop offset="95%" stopColor="#0284c7" stopOpacity={0.05} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                      <XAxis dataKey="label" stroke="#64748b" fontSize={12} tickLine={false} />
+                      <YAxis stroke="#64748b" fontSize={12} tickLine={false} tickFormatter={(v) => `R$${v}`} />
+                      <Tooltip
+                        formatter={(val: any) => [`R$ ${Number(val).toFixed(2).replace('.', ',')}`, 'Faturamento']}
+                        labelFormatter={(lbl) => `Período: ${lbl}`}
+                        contentStyle={{ background: '#ffffff', borderRadius: '8px', border: '1px solid #cbd5e1' }}
+                      />
+                      <Area type="monotone" dataKey="faturamento" stroke="#0284c7" strokeWidth={3} fillOpacity={1} fill="url(#colorFaturamento)" name="Faturamento (R$)" />
+                    </AreaChart>
+                  ) : (
+                    <BarChart data={dadosGrafico} margin={{ top: 10, right: 20, left: 10, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                      <XAxis dataKey="label" stroke="#64748b" fontSize={12} tickLine={false} />
+                      <YAxis stroke="#64748b" fontSize={12} tickLine={false} tickFormatter={(v) => `R$${v}`} />
+                      <Tooltip
+                        formatter={(val: any) => [`R$ ${Number(val).toFixed(2).replace('.', ',')}`, 'Faturamento']}
+                        labelFormatter={(lbl) => `Período: ${lbl}`}
+                        contentStyle={{ background: '#ffffff', borderRadius: '8px', border: '1px solid #cbd5e1' }}
+                      />
+                      <Bar dataKey="faturamento" fill="#0284c7" radius={[6, 6, 0, 0]} name="Faturamento (R$)" />
+                    </BarChart>
+                  )}
                 </ResponsiveContainer>
               </div>
             </div>
@@ -383,35 +488,37 @@ export const GraficosVendasModal: React.FC<GraficosVendasModalProps> = ({
             {/* MAIS VENDIDOS */}
             <div style={{ background: '#ffffff', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
               <h3 style={{ fontSize: '1rem', fontWeight: 700, color: '#16a34a', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                🔥 Produtos Mais Vendidos (Top Saídas)
+                🔥 Produtos Mais Vendidos (Maior Saída)
               </h3>
               {maisVendidos.length === 0 ? (
-                <div style={{ color: '#64748b', fontSize: '0.85rem' }}>Nenhum dado de vendas ainda.</div>
+                <div style={{ color: '#64748b', fontSize: '0.85rem', padding: '20px', textAlign: 'center' }}>
+                  Nenhum registro de vendas no período.
+                </div>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                   {maisVendidos.map((prod, index) => (
                     <div
-                      key={prod.codigo}
+                      key={prod.codigo || index}
                       style={{
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'space-between',
-                        padding: '8px 12px',
+                        padding: '10px 12px',
                         background: '#f0fdf4',
                         borderRadius: '8px',
                         border: '1px solid #bbf7d0',
                       }}
                     >
                       <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        <span style={{ fontWeight: 800, color: '#16a34a', width: '20px' }}>#{index + 1}</span>
+                        <span style={{ fontWeight: 800, color: '#16a34a', fontSize: '1rem', width: '24px' }}>#{index + 1}</span>
                         <div>
                           <b style={{ fontSize: '0.88rem', color: '#0f172a', display: 'block' }}>{prod.nome}</b>
                           <small style={{ color: '#475569' }}>Cód: {prod.codigo}</small>
                         </div>
                       </div>
                       <div style={{ textAlign: 'right' }}>
-                        <div style={{ fontWeight: 700, color: '#16a34a', fontSize: '0.95rem' }}>{prod.qtdVendida} un</div>
-                        <small style={{ color: '#64748b' }}>R$ {prod.totalFaturado.toFixed(2)}</small>
+                        <div style={{ fontWeight: 700, color: '#16a34a', fontSize: '0.95rem' }}>{prod.qtdVendida} un vendidas</div>
+                        <small style={{ color: '#64748b' }}>Faturado: R$ {prod.totalFaturado.toFixed(2)}</small>
                       </div>
                     </div>
                   ))}
@@ -422,35 +529,37 @@ export const GraficosVendasModal: React.FC<GraficosVendasModalProps> = ({
             {/* MENOS VENDIDOS */}
             <div style={{ background: '#ffffff', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
               <h3 style={{ fontSize: '1rem', fontWeight: 700, color: '#dc2626', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                🧊 Produtos Menos Vendidos (Pouca Saída)
+                🧊 Produtos Menos Vendidos (Baixa Saída)
               </h3>
               {menosVendidos.length === 0 ? (
-                <div style={{ color: '#64748b', fontSize: '0.85rem' }}>Nenhum dado de vendas ainda.</div>
+                <div style={{ color: '#64748b', fontSize: '0.85rem', padding: '20px', textAlign: 'center' }}>
+                  Nenhum registro de vendas no período.
+                </div>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                   {menosVendidos.map((prod, index) => (
                     <div
-                      key={prod.codigo}
+                      key={prod.codigo || index}
                       style={{
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'space-between',
-                        padding: '8px 12px',
+                        padding: '10px 12px',
                         background: '#fef2f2',
                         borderRadius: '8px',
                         border: '1px solid #fecaca',
                       }}
                     >
                       <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        <span style={{ fontWeight: 800, color: '#dc2626', width: '20px' }}>#{index + 1}</span>
+                        <span style={{ fontWeight: 800, color: '#dc2626', fontSize: '1rem', width: '24px' }}>#{index + 1}</span>
                         <div>
                           <b style={{ fontSize: '0.88rem', color: '#0f172a', display: 'block' }}>{prod.nome}</b>
                           <small style={{ color: '#475569' }}>Cód: {prod.codigo}</small>
                         </div>
                       </div>
                       <div style={{ textAlign: 'right' }}>
-                        <div style={{ fontWeight: 700, color: '#dc2626', fontSize: '0.95rem' }}>{prod.qtdVendida} un</div>
-                        <small style={{ color: '#64748b' }}>R$ {prod.totalFaturado.toFixed(2)}</small>
+                        <div style={{ fontWeight: 700, color: '#dc2626', fontSize: '0.95rem' }}>{prod.qtdVendida} un vendidas</div>
+                        <small style={{ color: '#64748b' }}>Faturado: R$ {prod.totalFaturado.toFixed(2)}</small>
                       </div>
                     </div>
                   ))}
@@ -463,33 +572,45 @@ export const GraficosVendasModal: React.FC<GraficosVendasModalProps> = ({
         {/* ABA 3: INTELIGÊNCIA DE ESTOQUE E CONSELHOS AO DONO */}
         {abaAtiva === 'inteligencia' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            <div style={{ background: '#f0f9ff', padding: '14px', borderRadius: '10px', border: '1px solid #bae6fd' }}>
-              <h3 style={{ fontSize: '0.95rem', fontWeight: 700, color: '#0369a1', marginBottom: '4px' }}>
-                🧠 Assistente Executivo de Estoque & Investimento
-              </h3>
-              <p style={{ fontSize: '0.84rem', color: '#0c4a6e', lineHeight: 1.4 }}>
-                Este painel analisa automaticamente a velocidade de saída das suas vendas cruzando com a quantidade atual no estoque. Ele ajuda o dono do supermercado a decidir onde colocar dinheiro e onde evitar desperdício de capital!
-              </p>
+            {/* PAINEL INFORMATIVO */}
+            <div style={{ background: '#f0f9ff', padding: '16px', borderRadius: '10px', border: '1px solid #bae6fd', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+              <div>
+                <h3 style={{ fontSize: '1rem', fontWeight: 700, color: '#0369a1', marginBottom: '4px' }}>
+                  🧠 Painel de Inteligência de Estoque (Para o Dono do Supermercado)
+                </h3>
+                <p style={{ fontSize: '0.85rem', color: '#0c4a6e', margin: 0 }}>
+                  Cruza a quantidade vendida com o estoque atual para mostrar onde investir dinheiro e onde parar compras.
+                </p>
+              </div>
+
+              {insightsEstoque.totalCapitalParado > 0 && (
+                <div style={{ background: '#ffffff', padding: '10px 14px', borderRadius: '8px', border: '1px solid #7dd3fc', textAlign: 'right' }}>
+                  <div style={{ fontSize: '0.75rem', color: '#0369a1', fontWeight: 600 }}>Capital Preso em Estoque Parado</div>
+                  <div style={{ fontSize: '1.2rem', fontWeight: 800, color: '#b45309' }}>
+                    R$ {insightsEstoque.totalCapitalParado.toFixed(2).replace('.', ',')}
+                  </div>
+                </div>
+              )}
             </div>
 
-            {/* RECOMENDAÇÃO 1: ONDE INVESTIR MAIS */}
+            {/* SEÇÃO 1: EVITAR COMPRAR MAIS (ESTOQUE PARADO) */}
             <div style={{ background: '#ffffff', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-              <h3 style={{ fontSize: '1rem', fontWeight: 700, color: '#16a34a', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                🚀 Produtos para Investir Mais (Alta Giro / Reposição Urgente)
+              <h3 style={{ fontSize: '1rem', fontWeight: 700, color: '#b45309', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                🛑 Estoque Parado / Evitar Investir Mais (Pouca Saída)
               </h3>
-              {insightsEstoque.investirMais.length === 0 ? (
-                <div style={{ color: '#64748b', fontSize: '0.85rem' }}>
-                  Nenhum alerta de ruptura ou alta demanda no momento.
+              {insightsEstoque.naoInvestir.length === 0 ? (
+                <div style={{ color: '#64748b', fontSize: '0.85rem', padding: '14px', background: '#f8fafc', borderRadius: '8px' }}>
+                  🎉 Excelente! Nenhum produto detectado com excesso de estoque parado sem vendas.
                 </div>
               ) : (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '10px' }}>
-                  {insightsEstoque.investirMais.map((item) => (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '12px' }}>
+                  {insightsEstoque.naoInvestir.map((item) => (
                     <div
                       key={item.codigo}
                       style={{
-                        background: '#f0fdf4',
-                        border: '1px solid #86efac',
-                        borderRadius: '8px',
+                        background: '#fffbeb',
+                        border: '1px solid #fde68a',
+                        borderRadius: '10px',
                         padding: '12px',
                         display: 'flex',
                         flexDirection: 'column',
@@ -497,14 +618,31 @@ export const GraficosVendasModal: React.FC<GraficosVendasModalProps> = ({
                       }}
                     >
                       <div>
-                        <b style={{ fontSize: '0.9rem', color: '#14532d', display: 'block', marginBottom: '4px' }}>
-                          {item.nome}
-                        </b>
-                        <p style={{ fontSize: '0.78rem', color: '#166534', lineHeight: 1.3 }}>{item.motivo}</p>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '6px' }}>
+                          <b style={{ fontSize: '0.92rem', color: '#78350f' }}>{item.nome}</b>
+                          <span style={{ fontSize: '0.75rem', background: '#fef3c7', color: '#92400e', padding: '2px 6px', borderRadius: '4px', fontWeight: 600 }}>
+                            Cód: {item.codigo}
+                          </span>
+                        </div>
+                        <p style={{ fontSize: '0.8rem', color: '#92400e', lineHeight: 1.4, margin: '6px 0' }}>
+                          {item.motivo}
+                        </p>
                       </div>
-                      <div style={{ marginTop: '8px', display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', fontWeight: 700, color: '#15803d', borderTop: '1px dashed #bbf7d0', paddingTop: '6px' }}>
-                        <span>Estoque Atual: {item.qtdEstoque} un</span>
-                        <span>Vendas: {item.qtdVendida} un</span>
+
+                      <div
+                        style={{
+                          marginTop: '8px',
+                          display: 'flex',
+                          justify: 'space-between',
+                          fontSize: '0.78rem',
+                          fontWeight: 700,
+                          color: '#b45309',
+                          borderTop: '1px dashed #fcd34d',
+                          paddingTop: '6px',
+                        }}
+                      >
+                        <span>📦 Em Estoque: {item.qtdEstoque} un</span>
+                        <span>🛒 Vendas: {item.qtdVendida} un</span>
                       </div>
                     </div>
                   ))}
@@ -512,24 +650,24 @@ export const GraficosVendasModal: React.FC<GraficosVendasModalProps> = ({
               )}
             </div>
 
-            {/* RECOMENDAÇÃO 2: EVITAR COMPRAR / ESTOQUE PARADO */}
+            {/* SEÇÃO 2: PRODUTOS PARA INVESTIR MAIS */}
             <div style={{ background: '#ffffff', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-              <h3 style={{ fontSize: '1rem', fontWeight: 700, color: '#d97706', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                ⚠️ Estoque Parado / Evitar Comprar Mais
+              <h3 style={{ fontSize: '1rem', fontWeight: 700, color: '#15803d', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                🚀 Produtos para Investir Mais (Alta Giro / Reposição Recomendada)
               </h3>
-              {insightsEstoque.naoInvestir.length === 0 ? (
-                <div style={{ color: '#64748b', fontSize: '0.85rem' }}>
-                  Nenhum acúmulo excessivo de estoque sem venda detectado.
+              {insightsEstoque.investirMais.length === 0 ? (
+                <div style={{ color: '#64748b', fontSize: '0.85rem', padding: '14px', background: '#f8fafc', borderRadius: '8px' }}>
+                  Nenhum alerta de reposição urgente no momento.
                 </div>
               ) : (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '10px' }}>
-                  {insightsEstoque.naoInvestir.map((item) => (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '12px' }}>
+                  {insightsEstoque.investirMais.map((item) => (
                     <div
                       key={item.codigo}
                       style={{
-                        background: '#fffbeb',
-                        border: '1px solid #fde68a',
-                        borderRadius: '8px',
+                        background: '#f0fdf4',
+                        border: '1px solid #86efac',
+                        borderRadius: '10px',
                         padding: '12px',
                         display: 'flex',
                         flexDirection: 'column',
@@ -537,14 +675,31 @@ export const GraficosVendasModal: React.FC<GraficosVendasModalProps> = ({
                       }}
                     >
                       <div>
-                        <b style={{ fontSize: '0.9rem', color: '#78350f', display: 'block', marginBottom: '4px' }}>
-                          {item.nome}
-                        </b>
-                        <p style={{ fontSize: '0.78rem', color: '#92400e', lineHeight: 1.3 }}>{item.motivo}</p>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '6px' }}>
+                          <b style={{ fontSize: '0.92rem', color: '#14532d' }}>{item.nome}</b>
+                          <span style={{ fontSize: '0.75rem', background: '#dcfce7', color: '#166534', padding: '2px 6px', borderRadius: '4px', fontWeight: 600 }}>
+                            Cód: {item.codigo}
+                          </span>
+                        </div>
+                        <p style={{ fontSize: '0.8rem', color: '#166534', lineHeight: 1.4, margin: '6px 0' }}>
+                          {item.motivo}
+                        </p>
                       </div>
-                      <div style={{ marginTop: '8px', display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', fontWeight: 700, color: '#b45309', borderTop: '1px dashed #fcd34d', paddingTop: '6px' }}>
-                        <span>Estoque Parado: {item.qtdEstoque} un</span>
-                        <span>Venda no Período: {item.qtdVendida} un</span>
+
+                      <div
+                        style={{
+                          marginTop: '8px',
+                          display: 'flex',
+                          justify: 'space-between',
+                          fontSize: '0.78rem',
+                          fontWeight: 700,
+                          color: '#15803d',
+                          borderTop: '1px dashed #bbf7d0',
+                          paddingTop: '6px',
+                        }}
+                      >
+                        <span>📦 Em Estoque: {item.qtdEstoque} un</span>
+                        <span>🛒 Vendas: {item.qtdVendida} un</span>
                       </div>
                     </div>
                   ))}

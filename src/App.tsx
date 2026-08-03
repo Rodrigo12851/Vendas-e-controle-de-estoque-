@@ -1635,6 +1635,12 @@ export default function App() {
               value={busca}
               onChange={(e) => setBusca(e.target.value)}
             />
+            <button className="btn btn-notif" onClick={abrirRelatorioVendas} title="Relatório de Vendas & Estornos">
+              🧾
+            </button>
+            <button className="btn btn-notif" onClick={abrirGraficosVendas} title="Gráficos & Inteligência de Estoque">
+              📈
+            </button>
             <button className="btn btn-notif" onClick={abrirNotificacoes} title="Notificações/Alertas">
               🔔
               <span
@@ -1688,20 +1694,6 @@ export default function App() {
         </div>
 
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-          <button
-            className="btn"
-            style={{ padding: '4px 10px', fontSize: '0.78rem', background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0', cursor: 'pointer', fontWeight: 600 }}
-            onClick={abrirRelatorioVendas}
-          >
-            🧾 Relatório de Vendas
-          </button>
-          <button
-            className="btn"
-            style={{ padding: '4px 10px', fontSize: '0.78rem', background: '#f0f9ff', color: '#0369a1', border: '1px solid #bae6fd', cursor: 'pointer', fontWeight: 600 }}
-            onClick={abrirGraficosVendas}
-          >
-            📈 Gráficos & Desempenho
-          </button>
           {perfilAtivo === 'admin_loja' && (
             <button
               className="btn"
