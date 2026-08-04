@@ -75,6 +75,8 @@ export interface Supermercado {
   senha: string;
   dataCadastro?: string;
   permissoesLoja?: PermissoesLoja;
+  limiteCaixas?: number;       // Limite máximo de Operadores de Caixa (ex: 5)
+  limiteSupervisores?: number; // Limite máximo de Supervisores/Admins (ex: 2)
 }
 
 export interface VendaItem {

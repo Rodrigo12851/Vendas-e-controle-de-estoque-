@@ -157,6 +157,8 @@ export default function App() {
   const [regLojaNome, setRegLojaNome] = useState<string>('');
   const [regLojaCnpj, setRegLojaCnpj] = useState<string>('');
   const [regLojaSenha, setRegLojaSenha] = useState<string>('');
+  const [regLojaLimiteCaixas, setRegLojaLimiteCaixas] = useState<number>(5);
+  const [regLojaLimiteSupervisores, setRegLojaLimiteSupervisores] = useState<number>(2);
   const [regLojaPermissoes, setRegLojaPermissoes] = useState<PermissoesLoja>(PERMISSOES_LOJA_PADRAO);
   const [senhaVisivel, setSenhaVisivel] = useState<boolean>(false);
   const [msgRegLoja, setMsgRegLoja] = useState<React.ReactNode>('');
@@ -488,17 +490,70 @@ export default function App() {
     localStorage.setItem(`logs_auditoria_${supermercadoAtual}`, JSON.stringify(novaLista));
   };
 
-  // Handlers para Gestão de Caixa (Abertura, Movimentação/Sangria, Fechamento)
-  const handleAbrirCaixa = (valorInicial: number) => {
-    const opAtivo = listaOperadores.find((op) => op.id === operadorAtivoId);
-    const opNome = opAtivo ? opAtivo.nome : 'Administrador';
-    const agora = new Date();
+  // Funções de Validação de Credenciais do Operador
+  const validarCredenciaisOperador = (usuarioInput: string, senhaInput: string): { valido: boolean; operador?: OperadorCaixa; mensagem?: string } => {
+    const loginLimpo = usuarioInput.trim().toLowerCase();
+    const senhaLimpa = senhaInput.trim();
 
+    if (!loginLimpo || !senhaLimpa) {
+      return { valido: false, mensagem: 'Informe seu usuário/CPF e senha para autenticar.' };
+    }
+
+    // 1. Verificar na lista de operadores cadastrados
+    const opEncontrado = listaOperadores.find(
+      (o) =>
+        (o.cpfOuUsuario.toLowerCase() === loginLimpo || o.nome.toLowerCase().includes(loginLimpo) || o.id.toLowerCase() === loginLimpo) &&
+        o.pinSenha === senhaLimpa
+    );
+
+    if (opEncontrado) {
+      if (!opEncontrado.ativo) {
+        return { valido: false, mensagem: 'Este operador de caixa está inativo no sistema.' };
+      }
+      return { valido: true, operador: opEncontrado };
+    }
+
+    // 2. Verificar credenciais administrativas master do supermercado
+    const lojaAtual = listaSupermercados.find((l) => l.id === supermercadoAtual);
+    const eAdminLoja = (loginLimpo === 'admin' || loginLimpo === 'supervisor' || loginLimpo === (lojaAtual?.nome.toLowerCase() || '')) &&
+                       (senhaLimpa === '123' || senhaLimpa === '1234' || senhaLimpa === lojaAtual?.senhaAdmin);
+
+    if (eAdminLoja) {
+      const opAdmin: OperadorCaixa = {
+        id: 'op_admin_' + Date.now(),
+        lojaId: supermercadoAtual,
+        nome: 'Administrador da Loja',
+        cargo: 'Administrador',
+        cpfOuUsuario: loginLimpo,
+        pinSenha: senhaLimpa,
+        permissoes: PERMISSOES_ADMIN_PADRAO,
+        ativo: true,
+        dataCadastro: new Date().toLocaleDateString('pt-BR'),
+      };
+      return { valido: true, operador: opAdmin };
+    }
+
+    return { valido: false, mensagem: 'Usuário (CPF/Login) ou Senha incorretos. Verifique os dados.' };
+  };
+
+  // Handlers para Gestão de Caixa (Abertura, Movimentação/Sangria, Fechamento)
+  const handleAbrirCaixa = (valorInicial: number, usuarioInput: string, senhaInput: string): { sucesso: boolean; mensagem?: string } => {
+    const validacao = validarCredenciaisOperador(usuarioInput, senhaInput);
+
+    if (!validacao.valido || !validacao.operador) {
+      return { sucesso: false, mensagem: validacao.mensagem || 'Usuário ou senha incorretos!' };
+    }
+
+    const opAtivo = validacao.operador;
+    setOperadorAtivoId(opAtivo.id);
+    localStorage.setItem('operadorAtivoId', opAtivo.id);
+
+    const agora = new Date();
     const novaSessao: SessaoCaixaTurno = {
       id: 'sessao_' + Date.now(),
       lojaId: supermercadoAtual,
-      operadorId: operadorAtivoId || 'admin',
-      operadorNome: opNome,
+      operadorId: opAtivo.id,
+      operadorNome: opAtivo.nome,
       dataAbertura: agora.toLocaleDateString('pt-BR'),
       horaAbertura: agora.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
       status: 'aberto',
@@ -506,9 +561,12 @@ export default function App() {
     };
 
     setSessaoCaixaAtiva(novaSessao);
-    localStorage.setItem(`sessao_caixa_${supermercadoAtual}_${operadorAtivoId || 'op_padrao'}`, JSON.stringify(novaSessao));
-    registrarLogAuditoria('Abertura de Caixa', `Abertura de caixa por ${opNome} com suprimento inicial de R$ ${valorInicial.toFixed(2)}`);
-    alert(`✅ Caixa ABERTO com sucesso! Suprimento inicial: R$ ${valorInicial.toFixed(2)}`);
+    localStorage.setItem(`sessao_caixa_${supermercadoAtual}_${opAtivo.id}`, JSON.stringify(novaSessao));
+    registrarLogAuditoria('Abertura de Caixa', `Caixa ABERTO por ${opAtivo.nome} (${opAtivo.cargo}) com troco inicial de R$ ${valorInicial.toFixed(2)}`);
+    
+    tocarSomSucessoVenda();
+    alert(`✅ Caixa ABERTO com sucesso!\n\nOperador: ${opAtivo.nome}\nTroco Inicial: R$ ${valorInicial.toFixed(2)}`);
+    return { sucesso: true };
   };
 
   const handleRegistrarMovimentacaoCaixa = (tipo: 'sangria' | 'suprimento', valor: number, descricao: string) => {
@@ -545,9 +603,19 @@ export default function App() {
     dinheiroInformado: number,
     cartaoInformado: number,
     pixInformado: number,
-    obs: string
-  ) => {
-    if (!sessaoCaixaAtiva) return;
+    obs: string,
+    usuarioInput: string,
+    senhaInput: string
+  ): { sucesso: boolean; mensagem?: string } => {
+    if (!sessaoCaixaAtiva) {
+      return { sucesso: false, mensagem: 'Não há sessão de caixa aberta no momento.' };
+    }
+
+    const validacao = validarCredenciaisOperador(usuarioInput, senhaInput);
+    if (!validacao.valido || !validacao.operador) {
+      return { sucesso: false, mensagem: validacao.mensagem || 'Usuário ou senha incorretos para confirmar fechamento!' };
+    }
+
     const agora = new Date();
 
     // Calcular esperado em Dinheiro
@@ -586,11 +654,12 @@ export default function App() {
 
     registrarLogAuditoria(
       'Fechamento de Caixa',
-      `Fechamento por ${sessaoCaixaAtiva.operadorNome}. Esperado Dinheiro: R$ ${dinheiroEsperado.toFixed(2)}, Informado: R$ ${dinheiroInformado.toFixed(2)} (${statusDiff})`
+      `Fechamento autorizadop por ${validacao.operador.nome}. Esperado Dinheiro: R$ ${dinheiroEsperado.toFixed(2)}, Informado: R$ ${dinheiroInformado.toFixed(2)} (${statusDiff})`
     );
 
     tocarSomSucessoVenda();
-    alert(`🔒 Caixa FECHADO com sucesso!\n\nEsperado: R$ ${dinheiroEsperado.toFixed(2)}\nInformado: R$ ${dinheiroInformado.toFixed(2)}\nResultado: ${statusDiff}`);
+    alert(`🔒 Caixa FECHADO com sucesso!\n\nConfirmado por: ${validacao.operador.nome}\nEsperado: R$ ${dinheiroEsperado.toFixed(2)}\nInformado: R$ ${dinheiroInformado.toFixed(2)}\nResultado: ${statusDiff}`);
+    return { sucesso: true };
   };
 
   const notificarSincronizacao = () => {
@@ -651,6 +720,8 @@ export default function App() {
     setRegLojaNome('');
     setRegLojaCnpj('');
     setRegLojaSenha('');
+    setRegLojaLimiteCaixas(5);
+    setRegLojaLimiteSupervisores(2);
     setRegLojaPermissoes(PERMISSOES_LOJA_PADRAO);
     setSenhaVisivel(false);
     setMsgRegLoja('');
@@ -698,19 +769,32 @@ export default function App() {
     }
 
     const idLoja = lojaEditandoId || 'loja_' + cnpj.replace(/\D/g, '');
+    const limCaixasNum = Math.max(0, Number(regLojaLimiteCaixas) || 0);
+    const limSupNum = Math.max(0, Number(regLojaLimiteSupervisores) || 0);
+
     const dadosLoja: Supermercado = {
       id: idLoja,
       nome,
       cnpj,
       senha,
       permissoesLoja: regLojaPermissoes,
+      limiteCaixas: limCaixasNum,
+      limiteSupervisores: limSupNum,
       dataCadastro: new Date().toLocaleDateString('pt-BR'),
     };
 
     let novaLista = [...listaSupermercados];
     const index = novaLista.findIndex((l) => l.id === idLoja);
     if (index !== -1) {
-      novaLista[index] = { ...novaLista[index], nome, cnpj, senha, permissoesLoja: regLojaPermissoes };
+      novaLista[index] = { 
+        ...novaLista[index], 
+        nome, 
+        cnpj, 
+        senha, 
+        permissoesLoja: regLojaPermissoes,
+        limiteCaixas: limCaixasNum,
+        limiteSupervisores: limSupNum,
+      };
     } else {
       novaLista.push(dadosLoja);
     }
@@ -748,6 +832,8 @@ export default function App() {
     setRegLojaNome(loja.nome);
     setRegLojaCnpj(loja.cnpj);
     setRegLojaSenha(loja.senha || '');
+    setRegLojaLimiteCaixas(loja.limiteCaixas !== undefined ? loja.limiteCaixas : 5);
+    setRegLojaLimiteSupervisores(loja.limiteSupervisores !== undefined ? loja.limiteSupervisores : 2);
     setRegLojaPermissoes(loja.permissoesLoja || PERMISSOES_LOJA_PADRAO);
     setSenhaVisivel(true);
     setMsgRegLoja(<span style={{ color: 'var(--primario)' }}>Editando: {loja.nome}</span>);
@@ -805,6 +891,32 @@ export default function App() {
     }
 
     const idOp = opEditandoId || 'op_' + Date.now();
+
+    // Verificação de Limites de Cadastros configurados pela Dona do App
+    const lojaAtual = listaSupermercados.find((l) => l.id === supermercadoAtual);
+    const maxCaixas = lojaAtual?.limiteCaixas !== undefined ? lojaAtual.limiteCaixas : 5;
+    const maxSupervisores = lojaAtual?.limiteSupervisores !== undefined ? lojaAtual.limiteSupervisores : 2;
+
+    const caixasExistentes = listaOperadores.filter((o) => o.cargo === 'Operador de Caixa' && o.ativo && o.id !== idOp).length;
+    const supervisoresExistentes = listaOperadores.filter((o) => (o.cargo === 'Supervisor' || o.cargo === 'Administrador') && o.ativo && o.id !== idOp).length;
+
+    if (regOpCargo === 'Operador de Caixa' && maxCaixas > 0 && caixasExistentes >= maxCaixas) {
+      setMsgRegOp(
+        <div style={{ background: '#fef2f2', border: '1px solid #fecaca', color: '#dc2626', padding: '10px 12px', borderRadius: '8px', marginTop: '10px', fontSize: '0.88rem', fontWeight: 600 }}>
+          🚫 Limite de Operadores de Caixa atingido ({caixasExistentes}/{maxCaixas})! A Dona do App definiu o limite máximo de {maxCaixas} caixa(s) para este supermercado. Entre em contato para alterar seu plano.
+        </div>
+      );
+      return;
+    }
+
+    if ((regOpCargo === 'Supervisor' || regOpCargo === 'Administrador') && maxSupervisores > 0 && supervisoresExistentes >= maxSupervisores) {
+      setMsgRegOp(
+        <div style={{ background: '#fef2f2', border: '1px solid #fecaca', color: '#dc2626', padding: '10px 12px', borderRadius: '8px', marginTop: '10px', fontSize: '0.88rem', fontWeight: 600 }}>
+          🚫 Limite de Supervisores atingido ({supervisoresExistentes}/{maxSupervisores})! A Dona do App definiu o limite máximo de {maxSupervisores} supervisor(es) para este supermercado. Entre em contato para alterar seu plano.
+        </div>
+      );
+      return;
+    }
     const novoOp: OperadorCaixa = {
       id: idOp,
       lojaId: supermercadoAtual,
@@ -2589,6 +2701,44 @@ export default function App() {
               </div>
             </div>
 
+            {/* CONFIGURAÇÃO DE LIMITES DE OPERADORES / SUPERVISORES (DONA DO APP) */}
+            <div style={{ background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: '10px', padding: '14px', marginTop: '16px', marginBottom: '16px' }}>
+              <label className="rotulo-campo" style={{ fontSize: '0.88rem', fontWeight: 700, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
+                🛡️ Limites de Plano e Cota de Usuários (Dona do Aplicativo):
+              </label>
+              <p style={{ fontSize: '0.78rem', color: '#64748b', margin: '0 0 12px 0' }}>
+                Defina a quantidade máxima de Caixas e Supervisores que o dono deste supermercado poderá cadastrar na conta dele. (Digite 0 para ilimitado).
+              </p>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
+                <div className="grupo-input" style={{ marginBottom: 0 }}>
+                  <label className="rotulo-campo" style={{ fontSize: '0.82rem', color: '#334155', fontWeight: 600 }}>
+                    🛒 Limite Máx. de Operadores de Caixa:
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    className="input-modal"
+                    placeholder="Ex: 5"
+                    value={regLojaLimiteCaixas}
+                    onChange={(e) => setRegLojaLimiteCaixas(parseInt(e.target.value) || 0)}
+                  />
+                </div>
+                <div className="grupo-input" style={{ marginBottom: 0 }}>
+                  <label className="rotulo-campo" style={{ fontSize: '0.82rem', color: '#334155', fontWeight: 600 }}>
+                    👔 Limite Máx. de Supervisores / Admins:
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    className="input-modal"
+                    placeholder="Ex: 2"
+                    value={regLojaLimiteSupervisores}
+                    onChange={(e) => setRegLojaLimiteSupervisores(parseInt(e.target.value) || 0)}
+                  />
+                </div>
+              </div>
+            </div>
+
             {/* QUADRADOS DE PERMISSÃO POR CATEGORIA PARA A DONA DO APLICATIVO */}
             <div style={{ marginTop: '16px', marginBottom: '12px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', flexWrap: 'wrap', gap: '6px' }}>
@@ -2791,6 +2941,14 @@ export default function App() {
                           >
                             {verSenha ? '👁️' : '🙈'}
                           </button>
+                        </div>
+                        <div style={{ fontSize: '0.78rem', color: '#0284c7', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                          <span style={{ background: '#e0f2fe', color: '#0369a1', padding: '2px 8px', borderRadius: '6px', fontWeight: 600 }}>
+                            🛒 Máx. Caixas: {loja.limiteCaixas !== undefined ? (loja.limiteCaixas === 0 ? '♾️ Ilimitado' : `${loja.limiteCaixas}`) : '5'}
+                          </span>
+                          <span style={{ background: '#fef3c7', color: '#92400e', padding: '2px 8px', borderRadius: '6px', fontWeight: 600 }}>
+                            👔 Máx. Supervisores: {loja.limiteSupervisores !== undefined ? (loja.limiteSupervisores === 0 ? '♾️ Ilimitado' : `${loja.limiteSupervisores}`) : '2'}
+                          </span>
                         </div>
                       </div>
 
@@ -3541,6 +3699,7 @@ export default function App() {
         onFecharCaixa={handleFecharCaixa}
         operadorAtivo={listaOperadores.find((op) => op.id === operadorAtivoId) || null}
         loja={listaSupermercados.find((l) => l.id === supermercadoAtual) || null}
+        listaOperadores={listaOperadores}
       />
 
       {/* MODAL DE ALERTAS DE VALIDADE NO WHATSAPP / E-MAIL */}

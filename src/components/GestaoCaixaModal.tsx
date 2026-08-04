@@ -7,11 +7,12 @@ interface GestaoCaixaModalProps {
   sessaoAtiva: SessaoCaixaTurno | null;
   vendasSessao: Venda[];
   movimentacoes: MovimentacaoCaixa[];
-  onAbrirCaixa: (valorInicial: number) => void;
+  onAbrirCaixa: (valorInicial: number, usuario: string, senha: string) => { sucesso: boolean; mensagem?: string };
   onRegistrarMovimentacao: (tipo: 'sangria' | 'suprimento', valor: number, descricao: string) => void;
-  onFecharCaixa: (dinheiroInformado: number, cartaoInformado: number, pixInformado: number, obs: string) => void;
+  onFecharCaixa: (dinheiroInformado: number, cartaoInformado: number, pixInformado: number, obs: string, usuario: string, senha: string) => { sucesso: boolean; mensagem?: string };
   operadorAtivo: OperadorCaixa | null;
   loja: Supermercado | null;
+  listaOperadores?: OperadorCaixa[];
 }
 
 export const GestaoCaixaModal: React.FC<GestaoCaixaModalProps> = ({
@@ -25,22 +26,29 @@ export const GestaoCaixaModal: React.FC<GestaoCaixaModalProps> = ({
   onFecharCaixa,
   operadorAtivo,
   loja,
+  listaOperadores = [],
 }) => {
   const [aba, setAba] = useState<'status' | 'sangria_suprimento' | 'fechamento'>('status');
 
   // Form Abertura
-  const [valorInicialStr, setValorInicialStr] = useState('100.00');
+  const [loginAbrir, setLoginAbrir] = useState<string>(operadorAtivo?.cpfOuUsuario || '');
+  const [senhaAbrir, setSenhaAbrir] = useState<string>('');
+  const [valorInicialStr, setValorInicialStr] = useState<string>('100.00');
+  const [msgErroAbertura, setMsgErroAbertura] = useState<string>('');
 
   // Form Movimentação (Sangria/Suprimento)
   const [tipoMov, setTipoMov] = useState<'sangria' | 'suprimento'>('sangria');
-  const [valorMovStr, setValorMovStr] = useState('');
-  const [descMov, setDescMov] = useState('');
+  const [valorMovStr, setValorMovStr] = useState<string>('');
+  const [descMov, setDescMov] = useState<string>('');
 
-  // Form Fechamento (Conferência Cega)
-  const [dinheiroInfStr, setDinheiroInfStr] = useState('');
-  const [cartaoInfStr, setCartaoInfStr] = useState('');
-  const [pixInfStr, setPixInfStr] = useState('');
-  const [obsFechamento, setObsFechamento] = useState('');
+  // Form Fechamento (Conferência Cega + Login/Senha)
+  const [dinheiroInfStr, setDinheiroInfStr] = useState<string>('');
+  const [cartaoInfStr, setCartaoInfStr] = useState<string>('');
+  const [pixInfStr, setPixInfStr] = useState<string>('');
+  const [obsFechamento, setObsFechamento] = useState<string>('');
+  const [loginFechar, setLoginFechar] = useState<string>(operadorAtivo?.cpfOuUsuario || '');
+  const [senhaFechar, setSenhaFechar] = useState<string>('');
+  const [msgErroFechamento, setMsgErroFechamento] = useState<string>('');
 
   if (!visivel) return null;
 
@@ -72,8 +80,21 @@ export const GestaoCaixaModal: React.FC<GestaoCaixaModalProps> = ({
 
   const handleSubmeterAbertura = (e: React.FormEvent) => {
     e.preventDefault();
+    setMsgErroAbertura('');
     const val = parseFloat(valorInicialStr.replace(',', '.')) || 0;
-    onAbrirCaixa(val);
+    
+    if (!loginAbrir.trim() || !senhaAbrir.trim()) {
+      setMsgErroAbertura('Informe o usuário/CPF e a senha para abrir o caixa.');
+      return;
+    }
+
+    const resultado = onAbrirCaixa(val, loginAbrir, senhaAbrir);
+    if (resultado.sucesso) {
+      setSenhaAbrir('');
+      setMsgErroAbertura('');
+    } else {
+      setMsgErroAbertura(resultado.mensagem || 'Usuário ou senha incorretos! Tente novamente.');
+    }
   };
 
   const handleSubmeterMovimentacao = (e: React.FormEvent) => {
@@ -95,51 +116,142 @@ export const GestaoCaixaModal: React.FC<GestaoCaixaModalProps> = ({
 
   const handleSubmeterFechamento = (e: React.FormEvent) => {
     e.preventDefault();
+    setMsgErroFechamento('');
     const din = parseFloat(dinheiroInfStr.replace(',', '.')) || 0;
     const car = parseFloat(cartaoInfStr.replace(',', '.')) || 0;
     const pix = parseFloat(pixInfStr.replace(',', '.')) || 0;
 
-    onFecharCaixa(din, car, pix, obsFechamento);
-    setAba('status');
+    if (!loginFechar.trim() || !senhaFechar.trim()) {
+      setMsgErroFechamento('Informe seu usuário e senha para confirmar o fechamento.');
+      return;
+    }
+
+    const resultado = onFecharCaixa(din, car, pix, obsFechamento, loginFechar, senhaFechar);
+    if (resultado.sucesso) {
+      setSenhaFechar('');
+      setMsgErroFechamento('');
+      setAba('status');
+    } else {
+      setMsgErroFechamento(resultado.mensagem || 'Usuário ou senha incorretos para autorizar o fechamento!');
+    }
   };
 
   return (
     <div className="modal-overlay" style={{ zIndex: 9999 }}>
       <div className="modal-container" style={{ maxWidth: '650px', width: '90%' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-          <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
-            💵 Gestão do Turno de Caixa & Sangria
+          <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px', fontSize: '1.1rem' }}>
+            💵 Gestão do Turno de Caixa & Autenticação
           </h3>
           <button className="btn-fechar-modal" onClick={onFechar}>&times;</button>
         </div>
 
         {/* MENSAGEM SE NÃO HOUVER CAIXA ABERTO */}
         {!sessaoAtiva || sessaoAtiva.status === 'fechado' ? (
-          <div style={{ background: '#fef2f2', border: '1px solid #fecaca', padding: '20px', borderRadius: '8px', textAlign: 'center' }}>
-            <h4 style={{ color: '#991b1b', margin: '0 0 8px 0' }}>🔴 Caixa Fechado para este Operador</h4>
-            <p style={{ fontSize: '0.9rem', color: '#7f1d1d', marginBottom: '16px' }}>
-              Operador: <strong>{operadorAtivo?.nome || 'Operador Padrão'}</strong> ({loja?.nome})
-            </p>
+          <div style={{ background: '#f8fafc', border: '1px solid #cbd5e1', padding: '18px', borderRadius: '12px' }}>
+            <div style={{ textAlign: 'center', marginBottom: '16px' }}>
+              <h4 style={{ color: '#0f172a', margin: '0 0 6px 0', fontSize: '1.1rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                🔑 Autenticação de Operador & Abertura de Caixa
+              </h4>
+              <p style={{ fontSize: '0.85rem', color: '#64748b', margin: 0 }}>
+                Informe seu Login (CPF/Usuário) e Senha para abrir o caixa e liberar vendas na loja <strong>{loja?.nome}</strong>.
+              </p>
+            </div>
 
-            <form onSubmit={handleSubmeterAbertura} style={{ maxWidth: '320px', margin: '0 auto', textAlign: 'left' }}>
-              <label style={{ fontSize: '0.85rem', fontWeight: 600, display: 'block', marginBottom: '4px' }}>
-                Fundo de Troco Inicial (Suprimento de Abertura R$):
-              </label>
-              <input
-                type="number"
-                step="0.01"
-                className="input-padrao"
-                value={valorInicialStr}
-                onChange={(e) => setValorInicialStr(e.target.value)}
-                required
-                style={{ width: '100%', marginBottom: '16px' }}
-              />
+            {msgErroAbertura && (
+              <div style={{ background: '#fef2f2', border: '1px solid #fecaca', color: '#dc2626', padding: '10px 12px', borderRadius: '8px', marginBottom: '16px', fontSize: '0.88rem', fontWeight: 600 }}>
+                ⚠️ {msgErroAbertura}
+              </div>
+            )}
+
+            <form onSubmit={handleSubmeterAbertura} style={{ display: 'flex', flexDirection: 'column', gap: '14px', maxWidth: '420px', margin: '0 auto' }}>
+              <div>
+                <label style={{ fontSize: '0.85rem', fontWeight: 600, display: 'block', marginBottom: '4px', color: '#334155' }}>
+                  👤 Usuário / CPF / Login:
+                </label>
+                <input
+                  type="text"
+                  className="input-padrao"
+                  placeholder="Ex: caixa01 ou supervisor"
+                  value={loginAbrir}
+                  onChange={(e) => {
+                    setLoginAbrir(e.target.value);
+                    setMsgErroAbertura('');
+                  }}
+                  required
+                  autoCapitalize="none"
+                  style={{ width: '100%' }}
+                />
+
+                {listaOperadores.length > 0 && (
+                  <div style={{ marginTop: '8px', display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
+                    <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>Operadores cadastrados:</span>
+                    {listaOperadores.map((op) => (
+                      <button
+                        key={op.id}
+                        type="button"
+                        onClick={() => {
+                          setLoginAbrir(op.cpfOuUsuario);
+                          setMsgErroAbertura('');
+                        }}
+                        style={{
+                          background: loginAbrir === op.cpfOuUsuario ? '#0284c7' : '#e2e8f0',
+                          color: loginAbrir === op.cpfOuUsuario ? '#ffffff' : '#334155',
+                          border: 'none',
+                          borderRadius: '6px',
+                          padding: '3px 8px',
+                          fontSize: '0.75rem',
+                          cursor: 'pointer',
+                          fontWeight: 500,
+                          transition: 'all 0.15s ease',
+                        }}
+                      >
+                        👤 {op.nome.split(' ')[0]} ({op.cpfOuUsuario})
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <label style={{ fontSize: '0.85rem', fontWeight: 600, display: 'block', marginBottom: '4px', color: '#334155' }}>
+                  🔑 Senha / PIN:
+                </label>
+                <input
+                  type="password"
+                  className="input-padrao"
+                  placeholder="Digite sua senha (ex: 123)"
+                  value={senhaAbrir}
+                  onChange={(e) => {
+                    setSenhaAbrir(e.target.value);
+                    setMsgErroAbertura('');
+                  }}
+                  required
+                  style={{ width: '100%' }}
+                />
+              </div>
+
+              <div>
+                <label style={{ fontSize: '0.85rem', fontWeight: 600, display: 'block', marginBottom: '4px', color: '#334155' }}>
+                  💵 Fundo de Troco Inicial (Suprimento R$):
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  className="input-padrao"
+                  value={valorInicialStr}
+                  onChange={(e) => setValorInicialStr(e.target.value)}
+                  required
+                  style={{ width: '100%' }}
+                />
+              </div>
+
               <button
                 type="submit"
                 className="btn btn-salvar"
-                style={{ width: '100%', padding: '12px', fontSize: '1rem', fontWeight: 600 }}
+                style={{ width: '100%', padding: '12px', fontSize: '1rem', fontWeight: 700, marginTop: '6px' }}
               >
-                🔓 Abrir Caixa Agora
+                🔓 Autenticar & Abrir Caixa
               </button>
             </form>
           </div>
@@ -303,13 +415,19 @@ export const GestaoCaixaModal: React.FC<GestaoCaixaModalProps> = ({
               </form>
             )}
 
-            {/* ABA 3: FECHAMENTO DE CAIXA COM CONFERÊNCIA CEGA */}
+            {/* ABA 3: FECHAMENTO DE CAIXA COM CONFERÊNCIA CEGA + LOGIN/SENHA */}
             {aba === 'fechamento' && (
               <form onSubmit={handleSubmeterFechamento} style={{ background: '#f8fafc', padding: '16px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
                 <h4 style={{ margin: '0 0 6px 0', color: '#1e293b' }}>🔒 Fechamento de Turno (Conferência Cega)</h4>
                 <p style={{ fontSize: '0.8rem', color: '#64748b', marginBottom: '16px' }}>
-                  Digite os valores contados fisicamente na gaveta para o sistema verificar sobras ou faltas.
+                  Digite os valores contados fisicamente na gaveta e confirme seu Login e Senha para autorizar o encerramento.
                 </p>
+
+                {msgErroFechamento && (
+                  <div style={{ background: '#fef2f2', border: '1px solid #fecaca', color: '#dc2626', padding: '10px 12px', borderRadius: '8px', marginBottom: '16px', fontSize: '0.88rem', fontWeight: 600 }}>
+                    ⚠️ {msgErroFechamento}
+                  </div>
+                )}
 
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '10px', marginBottom: '16px' }}>
                   <div>
@@ -373,6 +491,42 @@ export const GestaoCaixaModal: React.FC<GestaoCaixaModalProps> = ({
                   />
                 </div>
 
+                <div style={{ background: '#f1f5f9', border: '1px solid #cbd5e1', padding: '12px', borderRadius: '8px', marginBottom: '16px' }}>
+                  <h5 style={{ margin: '0 0 8px 0', fontSize: '0.85rem', color: '#0f172a' }}>🔑 Confirmação de Segurança do Operador</h5>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '10px' }}>
+                    <div>
+                      <label style={{ fontSize: '0.78rem', fontWeight: 600, display: 'block', marginBottom: '4px' }}>Usuário / CPF:</label>
+                      <input
+                        type="text"
+                        className="input-padrao"
+                        placeholder="Seu login (ex: caixa01)"
+                        value={loginFechar}
+                        onChange={(e) => {
+                          setLoginFechar(e.target.value);
+                          setMsgErroFechamento('');
+                        }}
+                        required
+                        style={{ width: '100%' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.78rem', fontWeight: 600, display: 'block', marginBottom: '4px' }}>Senha / PIN:</label>
+                      <input
+                        type="password"
+                        className="input-padrao"
+                        placeholder="Sua senha (ex: 123)"
+                        value={senhaFechar}
+                        onChange={(e) => {
+                          setSenhaFechar(e.target.value);
+                          setMsgErroFechamento('');
+                        }}
+                        required
+                        style={{ width: '100%' }}
+                      />
+                    </div>
+                  </div>
+                </div>
+
                 <button
                   type="submit"
                   className="btn"
@@ -388,3 +542,4 @@ export const GestaoCaixaModal: React.FC<GestaoCaixaModalProps> = ({
     </div>
   );
 };
+
