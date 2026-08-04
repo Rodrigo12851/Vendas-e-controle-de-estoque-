@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Venda, ItemEstoque, OperadorCaixa } from '../types';
+import { exportarVendasCSV } from '../lib/exportUtils';
 
 interface RelatorioVendasModalProps {
   visivel: boolean;
@@ -8,6 +9,7 @@ interface RelatorioVendasModalProps {
   onEstornarVenda: (vendaId: string, motivo: string) => void;
   operadores: OperadorCaixa[];
   nomeLoja: string;
+  onVerCupom?: (venda: Venda) => void;
 }
 
 export const RelatorioVendasModal: React.FC<RelatorioVendasModalProps> = ({
@@ -17,6 +19,7 @@ export const RelatorioVendasModal: React.FC<RelatorioVendasModalProps> = ({
   onEstornarVenda,
   operadores,
   nomeLoja,
+  onVerCupom,
 }) => {
   const [busca, setBusca] = useState('');
   const [statusFiltro, setStatusFiltro] = useState<'todas' | 'concluida' | 'estornada'>('todas');
@@ -183,6 +186,14 @@ export const RelatorioVendasModal: React.FC<RelatorioVendasModalProps> = ({
                 </option>
               ))}
             </select>
+
+            <button
+              className="btn btn-salvar"
+              style={{ padding: '6px 14px', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '6px' }}
+              onClick={() => exportarVendasCSV(vendasFiltradas, nomeLoja)}
+            >
+              📥 Exportar CSV
+            </button>
           </div>
         </div>
 
@@ -252,6 +263,16 @@ export const RelatorioVendasModal: React.FC<RelatorioVendasModalProps> = ({
                       </div>
 
                       <div style={{ display: 'flex', gap: '6px' }}>
+                        {onVerCupom && (
+                          <button
+                            className="btn-acao-rel"
+                            style={{ background: '#f1f5f9', color: '#0f172a', fontWeight: 600 }}
+                            onClick={() => onVerCupom(venda)}
+                          >
+                            🧾 Cupom
+                          </button>
+                        )}
+
                         <button
                           className="btn-acao-rel btn-editar-rel"
                           onClick={() => setVendaExpandidaId(isExpandida ? null : venda.id)}

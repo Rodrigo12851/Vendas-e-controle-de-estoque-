@@ -102,6 +102,47 @@ export interface Venda {
   motivoEstorno?: string;
 }
 
+export interface MovimentacaoCaixa {
+  id: string;
+  lojaId: string;
+  sessaoId: string;
+  tipo: 'suprimento' | 'sangria' | 'venda' | 'estorno';
+  valor: number;
+  descricao: string;
+  operadorId: string;
+  operadorNome: string;
+  dataHora: string;
+}
+
+export interface SessaoCaixaTurno {
+  id: string;
+  lojaId: string;
+  operadorId: string;
+  operadorNome: string;
+  dataAbertura: string;
+  horaAbertura: string;
+  status: 'aberto' | 'fechado';
+  valorInicialSuprimento: number;
+  dataFechamento?: string;
+  horaFechamento?: string;
+  valorDinheiroInformado?: number;
+  valorCartaoInformado?: number;
+  valorPixInformado?: number;
+  valorDinheiroEsperado?: number;
+  diferencaDinheiro?: number; // positivo = sobra, negativo = falta
+  observacoesFechamento?: string;
+}
+
+export interface LogAuditoria {
+  id: string;
+  lojaId: string;
+  operadorId: string;
+  operadorNome: string;
+  acao: string;
+  detalhes: string;
+  dataHora: string;
+}
+
 export const PERMISSOES_LOJA_PADRAO: PermissoesLoja = {
   caixa: true,
   estoque: true,

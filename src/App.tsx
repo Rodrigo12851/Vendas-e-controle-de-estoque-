@@ -15,6 +15,23 @@ import {
 } from './types';
 import { RelatorioVendasModal } from './components/RelatorioVendasModal';
 import { GraficosVendasModal } from './components/GraficosVendasModal';
+import { CupomVendaModal } from './components/CupomVendaModal';
+import { EtiquetasModal } from './components/EtiquetasModal';
+import { GestaoCaixaModal } from './components/GestaoCaixaModal';
+import { AlertasWhatsAppModal } from './components/AlertasWhatsAppModal';
+import { tocarBeepCaixa, tocarSomSucessoVenda } from './lib/soundUtils';
+import { exportarEstoqueCSV } from './lib/exportUtils';
+import { processarCodigoBarraBalanca } from './lib/balancaUtils';
+import {
+  obterVendasPendentesOffline,
+  adicionarVendaFilaOffline,
+  sincronizarVendasPendentesFirestore,
+} from './lib/offlineSync';
+import {
+  SessaoCaixaTurno,
+  MovimentacaoCaixa,
+  LogAuditoria,
+} from './types';
 import {
   subscribeSupermercados,
   subscribeEstoque,
@@ -221,6 +238,51 @@ export default function App() {
   // Vendas, Estornos & Gráficos Modals
   const [modalRelatorioVendasVisivel, setModalRelatorioVendasVisivel] = useState<boolean>(false);
   const [modalGraficosVendasVisivel, setModalGraficosVendasVisivel] = useState<boolean>(false);
+  const [vendaCupomVer, setVendaCupomVer] = useState<Venda | null>(null);
+  const [modalEtiquetasVisivel, setModalEtiquetasVisivel] = useState<boolean>(false);
+
+  // New Features: Gestão de Caixa, Alertas WhatsApp, Offline & PIN
+  const [modalCaixaVisivel, setModalCaixaVisivel] = useState<boolean>(false);
+  const [modalAlertasWhatsAppVisivel, setModalAlertasWhatsAppVisivel] = useState<boolean>(false);
+  const [isOnline, setIsOnline] = useState<boolean>(navigator.onLine);
+  const [vendasPendentesCount, setVendasPendentesCount] = useState<number>(0);
+
+  // Cash Turn Session & Transactions
+  const [sessaoCaixaAtiva, setSessaoCaixaAtiva] = useState<SessaoCaixaTurno | null>(() => {
+    try {
+      const storeId = localStorage.getItem('supermercadoAtualId') || 'loja_matriz_01';
+      const opId = localStorage.getItem('operadorAtivoId') || 'op_padrao';
+      const salvo = localStorage.getItem(`sessao_caixa_${storeId}_${opId}`);
+      return salvo ? JSON.parse(salvo) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  const [movimentacoesCaixa, setMovimentacoesCaixa] = useState<MovimentacaoCaixa[]>(() => {
+    try {
+      const storeId = localStorage.getItem('supermercadoAtualId') || 'loja_matriz_01';
+      const salvo = localStorage.getItem(`movimentacoes_caixa_${storeId}`);
+      return salvo ? JSON.parse(salvo) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const [logsAuditoria, setLogsAuditoria] = useState<LogAuditoria[]>(() => {
+    try {
+      const storeId = localStorage.getItem('supermercadoAtualId') || 'loja_matriz_01';
+      const salvo = localStorage.getItem(`logs_auditoria_${storeId}`);
+      return salvo ? JSON.parse(salvo) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  // Stock Filtering & Sorting
+  const [filtroCategoriaEstoque, setFiltroCategoriaEstoque] = useState<string>('todas');
+  const [filtroStatusEstoque, setFiltroStatusEstoque] = useState<'todos' | 'vencidos' | 'vencendo30' | 'baixo'>('todos');
+  const [ordenacaoEstoque, setOrdenacaoEstoque] = useState<'nome' | 'validade' | 'maior_preco' | 'menor_preco' | 'maior_qtd' | 'menor_qtd'>('nome');
 
   // Sales History List (Per Store)
   const [vendas, setVendas] = useState<Venda[]>(() => {
@@ -381,11 +443,155 @@ export default function App() {
 
     window.addEventListener('storage', handleStorage);
 
+    // Online/Offline Status Listener & Auto Sync
+    const handleOnline = async () => {
+      setIsOnline(true);
+      const syncCount = await sincronizarVendasPendentesFirestore();
+      if (syncCount > 0) {
+        setVendasPendentesCount(obterVendasPendentesOffline().length);
+      }
+    };
+
+    const handleOffline = () => {
+      setIsOnline(false);
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    // Check pending offline items on mount
+    setVendasPendentesCount(obterVendasPendentesOffline().length);
+
     return () => {
       if (syncChannel) syncChannel.close();
       window.removeEventListener('storage', handleStorage);
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
     };
   }, [supermercadoAtual]);
+
+  // Auditoria Handler
+  const registrarLogAuditoria = (acao: string, detalhes: string) => {
+    const opAtivo = listaOperadores.find((op) => op.id === operadorAtivoId);
+    const novoLog: LogAuditoria = {
+      id: 'log_' + Date.now(),
+      lojaId: supermercadoAtual,
+      operadorId: operadorAtivoId || 'admin',
+      operadorNome: opAtivo ? opAtivo.nome : 'Administrador',
+      acao,
+      detalhes,
+      dataHora: new Date().toLocaleDateString('pt-BR') + ' ' + new Date().toLocaleTimeString('pt-BR'),
+    };
+
+    const novaLista = [novoLog, ...logsAuditoria];
+    setLogsAuditoria(novaLista);
+    localStorage.setItem(`logs_auditoria_${supermercadoAtual}`, JSON.stringify(novaLista));
+  };
+
+  // Handlers para Gestão de Caixa (Abertura, Movimentação/Sangria, Fechamento)
+  const handleAbrirCaixa = (valorInicial: number) => {
+    const opAtivo = listaOperadores.find((op) => op.id === operadorAtivoId);
+    const opNome = opAtivo ? opAtivo.nome : 'Administrador';
+    const agora = new Date();
+
+    const novaSessao: SessaoCaixaTurno = {
+      id: 'sessao_' + Date.now(),
+      lojaId: supermercadoAtual,
+      operadorId: operadorAtivoId || 'admin',
+      operadorNome: opNome,
+      dataAbertura: agora.toLocaleDateString('pt-BR'),
+      horaAbertura: agora.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+      status: 'aberto',
+      valorInicialSuprimento: valorInicial,
+    };
+
+    setSessaoCaixaAtiva(novaSessao);
+    localStorage.setItem(`sessao_caixa_${supermercadoAtual}_${operadorAtivoId || 'op_padrao'}`, JSON.stringify(novaSessao));
+    registrarLogAuditoria('Abertura de Caixa', `Abertura de caixa por ${opNome} com suprimento inicial de R$ ${valorInicial.toFixed(2)}`);
+    alert(`✅ Caixa ABERTO com sucesso! Suprimento inicial: R$ ${valorInicial.toFixed(2)}`);
+  };
+
+  const handleRegistrarMovimentacaoCaixa = (tipo: 'sangria' | 'suprimento', valor: number, descricao: string) => {
+    if (!sessaoCaixaAtiva) return;
+    const opAtivo = listaOperadores.find((op) => op.id === operadorAtivoId);
+    const opNome = opAtivo ? opAtivo.nome : 'Administrador';
+
+    const novaMov: MovimentacaoCaixa = {
+      id: 'mov_' + Date.now(),
+      lojaId: supermercadoAtual,
+      sessaoId: sessaoCaixaAtiva.id,
+      tipo,
+      valor,
+      descricao,
+      operadorId: operadorAtivoId || 'admin',
+      operadorNome: opNome,
+      dataHora: new Date().toLocaleDateString('pt-BR') + ' ' + new Date().toLocaleTimeString('pt-BR'),
+    };
+
+    const novaLista = [novaMov, ...movimentacoesCaixa];
+    setMovimentacoesCaixa(novaLista);
+    localStorage.setItem(`movimentacoes_caixa_${supermercadoAtual}`, JSON.stringify(novaLista));
+
+    registrarLogAuditoria(
+      tipo === 'sangria' ? 'Sangria de Caixa' : 'Suprimento de Caixa',
+      `${tipo.toUpperCase()}: R$ ${valor.toFixed(2)} - Motivo: ${descricao}`
+    );
+
+    tocarBeepCaixa();
+    alert(`✅ ${tipo === 'sangria' ? 'Sangria' : 'Suprimento'} de R$ ${valor.toFixed(2)} registrado com sucesso!`);
+  };
+
+  const handleFecharCaixa = (
+    dinheiroInformado: number,
+    cartaoInformado: number,
+    pixInformado: number,
+    obs: string
+  ) => {
+    if (!sessaoCaixaAtiva) return;
+    const agora = new Date();
+
+    // Calcular esperado em Dinheiro
+    const suprimentosSessao = movimentacoesCaixa
+      .filter((m) => m.sessaoId === sessaoCaixaAtiva.id && m.tipo === 'suprimento')
+      .reduce((a, b) => a + b.valor, 0);
+
+    const sangriasSessao = movimentacoesCaixa
+      .filter((m) => m.sessaoId === sessaoCaixaAtiva.id && m.tipo === 'sangria')
+      .reduce((a, b) => a + b.valor, 0);
+
+    const vendasDinheiroSessao = vendas
+      .filter((v) => v.status === 'concluida' && v.formaPagamento === 'dinheiro')
+      .reduce((a, b) => a + b.valorTotal, 0);
+
+    const dinheiroEsperado = sessaoCaixaAtiva.valorInicialSuprimento + suprimentosSessao + vendasDinheiroSessao - sangriasSessao;
+    const diferencaDinheiro = dinheiroInformado - dinheiroEsperado;
+
+    const sessaoFechada: SessaoCaixaTurno = {
+      ...sessaoCaixaAtiva,
+      status: 'fechado',
+      dataFechamento: agora.toLocaleDateString('pt-BR'),
+      horaFechamento: agora.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+      valorDinheiroInformado: dinheiroInformado,
+      valorCartaoInformado: cartaoInformado,
+      valorPixInformado: pixInformado,
+      valorDinheiroEsperado: dinheiroEsperado,
+      diferencaDinheiro: diferencaDinheiro,
+      observacoesFechamento: obs,
+    };
+
+    setSessaoCaixaAtiva(sessaoFechada);
+    localStorage.setItem(`sessao_caixa_${supermercadoAtual}_${operadorAtivoId || 'op_padrao'}`, JSON.stringify(sessaoFechada));
+
+    const statusDiff = diferencaDinheiro === 0 ? 'SEM DIFERENÇA' : diferencaDinheiro > 0 ? `SOBRA DE R$ ${diferencaDinheiro.toFixed(2)}` : `FALTA DE R$ ${Math.abs(diferencaDinheiro).toFixed(2)}`;
+
+    registrarLogAuditoria(
+      'Fechamento de Caixa',
+      `Fechamento por ${sessaoCaixaAtiva.operadorNome}. Esperado Dinheiro: R$ ${dinheiroEsperado.toFixed(2)}, Informado: R$ ${dinheiroInformado.toFixed(2)} (${statusDiff})`
+    );
+
+    tocarSomSucessoVenda();
+    alert(`🔒 Caixa FECHADO com sucesso!\n\nEsperado: R$ ${dinheiroEsperado.toFixed(2)}\nInformado: R$ ${dinheiroInformado.toFixed(2)}\nResultado: ${statusDiff}`);
+  };
 
   const notificarSincronizacao = () => {
     if (typeof BroadcastChannel !== 'undefined') {
@@ -783,6 +989,7 @@ export default function App() {
     const destino = destinoLeitorRef.current;
 
     fecharLeitor();
+    tocarBeepCaixa();
 
     if (navigator.vibrate) {
       try {
@@ -792,7 +999,22 @@ export default function App() {
 
     if (destino === 'busca') {
       setBusca(codLimpo);
-      const achou = estoque.find((p) => p.codigo === codLimpo);
+
+      // Verificação de Etiqueta de Balança (EAN-13 começando com '2')
+      const resBalanca = processarCodigoBarraBalanca(codLimpo, estoque);
+      if (resBalanca.isBalanca && resBalanca.itemEncontrado) {
+        setProdAtual(resBalanca.itemEncontrado);
+        setQtdBaixa(resBalanca.quantidadeCalculada || 1);
+        setMsgVenda(
+          <span style={{ color: 'var(--sucesso)', fontWeight: 'bold' }}>
+            ⚖️ Etiqueta de Balança Lida! Peso/Qtd: {resBalanca.quantidadeCalculada} un/kg (R$ {resBalanca.precoTotal?.toFixed(2)})
+          </span>
+        );
+        setModalVendaVisivel(true);
+        return;
+      }
+
+      const achou = estoque.find((p) => p.codigo === codLimpo || p.codigo_barras === codLimpo);
       if (achou) {
         abrirVenda(achou.codigo, achou.validade, achou.lote);
       }
@@ -1450,23 +1672,40 @@ export default function App() {
     const novasVendas = [novaVenda, ...vendas];
     setVendas(novasVendas);
     localStorage.setItem(`vendas_${supermercadoAtual}`, JSON.stringify(novasVendas));
-    salvarVendaFirestore(novaVenda);
+
+    // Offline Queueing & Firestore Sync
+    if (!navigator.onLine) {
+      adicionarVendaFilaOffline(novaVenda);
+      setVendasPendentesCount(obterVendasPendentesOffline().length);
+    } else {
+      salvarVendaFirestore(novaVenda).catch(() => {
+        adicionarVendaFilaOffline(novaVenda);
+        setVendasPendentesCount(obterVendasPendentesOffline().length);
+      });
+    }
+
+    registrarLogAuditoria(
+      'Venda Concluída',
+      `Venda ${novaVenda.id} de R$ ${novaVenda.valorTotal.toFixed(2)} (${novaVenda.formaPagamento.toUpperCase()}) por ${nomeOperador}`
+    );
 
     setEstoque(novoEstoque);
     localStorage.setItem(`estoque_${supermercadoAtual}`, JSON.stringify(novoEstoque));
     if (index !== -1 && novoEstoque[index]) {
       salvarItemEstoqueFirestore(novoEstoque[index], supermercadoAtual);
     }
+    tocarSomSucessoVenda();
     setMsgVenda(
       <span style={{ color: 'var(--sucesso)' }}>
-        ✅ Venda/Baixa realizada com sucesso! Restam {index !== -1 ? Math.max(0, novoEstoque[index]?.quantidade || 0) : 0} un.
+        ✅ Venda realizada com sucesso!
       </span>
     );
     notificarSincronizacao();
 
     setTimeout(() => {
       setModalVendaVisivel(false);
-    }, 900);
+      setVendaCupomVer(novaVenda);
+    }, 700);
   };
 
   // Sales Reversal (Estorno) Handler
@@ -1700,21 +1939,9 @@ export default function App() {
             )}
           </select>
         </div>
-
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-          {perfilAtivo === 'admin_loja' && (
-            <button
-              className="btn"
-              style={{ padding: '4px 8px', fontSize: '0.75rem', background: '#e0f2fe', color: '#0284c7', border: '1px solid #bae6fd', cursor: 'pointer' }}
-              onClick={abrirModalOperadores}
-            >
-              👥 Cadastrar Caixas & Permissões
-            </button>
-          )}
-        </div>
       </div>
 
-      {/* SIDEBAR */}
+      {/* SIDEBAR (MENU DE TRÊS TRAÇOS) */}
       <div
         className="sidebar-overlay"
         id="sidebarOverlay"
@@ -1726,47 +1953,134 @@ export default function App() {
       ></div>
       <div className={`sidebar ${menuAtivo ? 'ativo' : ''}`} id="sidebarMenu">
         <div className="sidebar-header">
-          <span id="labelSupermercadoAtivo">Loja: {nomeSupermercadoAtivo}</span>
+          <div>
+            <span id="labelSupermercadoAtivo" style={{ display: 'block', fontWeight: 700 }}>Loja: {nomeSupermercadoAtivo}</span>
+            <span
+              style={{
+                fontSize: '0.72rem',
+                fontWeight: 600,
+                color: isOnline ? '#16a34a' : '#dc2626',
+                display: 'inline-block',
+                marginTop: '2px',
+              }}
+            >
+              {isOnline ? '🟢 Online (PWA Sincronizado)' : `🔴 Offline (Fila: ${vendasPendentesCount})`}
+            </span>
+          </div>
           <button className="sidebar-fechar" onClick={fecharMenu}>
             ✕
           </button>
         </div>
         <div className="sidebar-menu">
-          <div className="sidebar-item" onClick={abrirModalSupermercado}>
-            🏢 Cadastrar / Gerenciar Lojas (Dona do App)
+          <div
+            className="sidebar-item"
+            style={{ fontWeight: 600, background: '#e0f2fe', color: '#0369a1', borderRadius: '6px' }}
+            onClick={() => {
+              setModalCaixaVisivel(true);
+              fecharMenu();
+            }}
+          >
+            💵 Gestão de Caixa (Abertura, Sangria & Turno) {!sessaoCaixaAtiva || sessaoCaixaAtiva.status === 'fechado' ? '🔴 Fechado' : '🟢 Aberto'}
           </div>
-          <div className="sidebar-item" onClick={abrirModalOperadores}>
-            👥 Cadastrar Caixas & Funcionários
+
+          <div
+            className="sidebar-item"
+            style={{ fontWeight: 600, background: '#dcfce7', color: '#15803d', borderRadius: '6px' }}
+            onClick={() => {
+              setModalAlertasWhatsAppVisivel(true);
+              fecharMenu();
+            }}
+          >
+            📱 Alerta de Validade no WhatsApp / E-mail
           </div>
+
+          <div
+            className="sidebar-item"
+            onClick={() => {
+              setModalEtiquetasVisivel(true);
+              fecharMenu();
+            }}
+          >
+            🏷️ Imprimir Etiquetas de Prateleira
+          </div>
+
           <div
             className="sidebar-item"
             onClick={() => {
               if (verificarPermissaoOuAvisar('estoque', 'cadastrar_produtos', 'Cadastrar Produtos')) {
                 abrirCadastro();
+                fecharMenu();
               }
             }}
           >
             ➕ Adicionar Item (Estoque)
           </div>
-          <div className="sidebar-item" onClick={abrirRelatorioCatalogo}>
-            🗂️ Catálogo Global
+
+          <div
+            className="sidebar-item"
+            onClick={() => {
+              abrirRelatorioVendas();
+              fecharMenu();
+            }}
+          >
+            🧾 Relatório de Vendas (Histórico, Estorno & Cupom)
           </div>
+
           <div
             className="sidebar-item"
             onClick={() => {
               if (verificarPermissaoOuAvisar('relatorios', 'ver_relatorios', 'Relatórios Financeiros')) {
                 abrirRelatorio();
+                fecharMenu();
               }
             }}
           >
-            📊 Relatório de Estoque
+            📊 Relatório de Estoque (Filtros & Validades)
           </div>
-          <div className="sidebar-item" onClick={abrirRelatorioVendas}>
-            🧾 Relatório de Vendas (Histórico & Estorno)
-          </div>
-          <div className="sidebar-item" onClick={abrirGraficosVendas}>
+
+          <div
+            className="sidebar-item"
+            onClick={() => {
+              abrirGraficosVendas();
+              fecharMenu();
+            }}
+          >
             📈 Gráficos & Inteligência de Estoque (Dono)
           </div>
+
+          <div
+            className="sidebar-item"
+            onClick={() => {
+              abrirRelatorioCatalogo();
+              fecharMenu();
+            }}
+          >
+            🗂️ Catálogo Global
+          </div>
+
+          {perfilAtivo === 'admin_loja' || perfilAtivo === 'dona_app' ? (
+            <div
+              className="sidebar-item"
+              onClick={() => {
+                abrirModalOperadores();
+                fecharMenu();
+              }}
+            >
+              👥 Cadastrar Caixas & Permissões
+            </div>
+          ) : null}
+
+          {perfilAtivo === 'dona_app' && (
+            <div
+              className="sidebar-item"
+              onClick={() => {
+                abrirModalSupermercado();
+                fecharMenu();
+              }}
+            >
+              🏢 Cadastrar / Gerenciar Lojas (Dona do App)
+            </div>
+          )}
         </div>
       </div>
 
@@ -1837,31 +2151,170 @@ export default function App() {
           </button>
         </div>
         <div className="corpo-relatorio-cheio">
-          <div className="linha-input" style={{ marginBottom: '12px' }}>
-            <input
-              type="text"
-              id="buscaRelatorio"
-              className="input-modal"
-              style={{ marginBottom: 0 }}
-              placeholder="Pesquisar ou escanear..."
-              value={buscaRelatorio}
-              onChange={(e) => setBuscaRelatorio(e.target.value)}
-            />
-            <button className="btn-cam-pequeno" onClick={abrirLeitorRelatorio} title="Escanear Código no Relatório">
-              📷
-            </button>
-          </div>
+          {modoRelatorioAtual === 'estoque' && (() => {
+            const hojeIso = new Date().toISOString().split('T')[0];
+            const totalItensQtd = estoque.reduce((acc, i) => acc + i.quantidade, 0);
+            const totalValorVenda = estoque.reduce((acc, i) => acc + (i.quantidade * i.preco_venda), 0);
+            const totalValorCusto = estoque.reduce((acc, i) => acc + (i.quantidade * (i.preco_custo || 0)), 0);
+            const itensVencidos = estoque.filter((i) => i.validade && i.validade < hojeIso);
+            const itensBaixo = estoque.filter((i) => i.quantidade <= 5);
+
+            return (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '16px' }}>
+                {/* KPIS DE ESTOQUE */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '10px' }}>
+                  <div style={{ background: '#ffffff', padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                    <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>Total de Itens</div>
+                    <div style={{ fontSize: '1.2rem', fontWeight: 700, color: '#0f172a' }}>
+                      {totalItensQtd} <small style={{ fontSize: '0.75rem', fontWeight: 400 }}>unid.</small>
+                    </div>
+                  </div>
+
+                  <div style={{ background: '#ffffff', padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                    <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>Valor de Venda Estoque</div>
+                    <div style={{ fontSize: '1.2rem', fontWeight: 700, color: '#16a34a' }}>
+                      R$ {totalValorVenda.toFixed(2).replace('.', ',')}
+                    </div>
+                  </div>
+
+                  <div style={{ background: '#ffffff', padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                    <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>Custo Total Estimado</div>
+                    <div style={{ fontSize: '1.2rem', fontWeight: 700, color: '#0284c7' }}>
+                      R$ {totalValorCusto.toFixed(2).replace('.', ',')}
+                    </div>
+                  </div>
+
+                  <div style={{ background: '#ffffff', padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                    <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>Alertas de Validade / Qtd</div>
+                    <div style={{ fontSize: '1.2rem', fontWeight: 700, color: itensVencidos.length > 0 ? '#dc2626' : '#d97706' }}>
+                      {itensVencidos.length} <small style={{ fontSize: '0.75rem' }}>vencidos</small> / {itensBaixo.length} <small style={{ fontSize: '0.75rem' }}>baixos</small>
+                    </div>
+                  </div>
+                </div>
+
+                {/* FILTROS E AÇÕES DE ESTOQUE */}
+                <div style={{ background: '#ffffff', padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    <div className="linha-input" style={{ flex: 1, minWidth: '200px', marginBottom: 0 }}>
+                      <input
+                        type="text"
+                        id="buscaRelatorio"
+                        className="input-modal"
+                        style={{ marginBottom: 0 }}
+                        placeholder="Pesquisar por nome ou código..."
+                        value={buscaRelatorio}
+                        onChange={(e) => setBuscaRelatorio(e.target.value)}
+                      />
+                      <button className="btn-cam-pequeno" onClick={abrirLeitorRelatorio} title="Escanear Código no Relatório">
+                        📷
+                      </button>
+                    </div>
+
+                    <select
+                      className="input-modal"
+                      value={filtroStatusEstoque}
+                      onChange={(e) => setFiltroStatusEstoque(e.target.value as any)}
+                      style={{ width: 'auto', minWidth: '130px', marginBottom: 0 }}
+                    >
+                      <option value="todos">Status: Todos</option>
+                      <option value="vencidos">🚨 Apenas Vencidos</option>
+                      <option value="vencendo30">⚠️ Vencem em 30 dias</option>
+                      <option value="baixo">📉 Estoque Baixo (≤5)</option>
+                    </select>
+
+                    <select
+                      className="input-modal"
+                      value={ordenacaoEstoque}
+                      onChange={(e) => setOrdenacaoEstoque(e.target.value as any)}
+                      style={{ width: 'auto', minWidth: '140px', marginBottom: 0 }}
+                    >
+                      <option value="nome">Ordenar: Nome (A-Z)</option>
+                      <option value="validade">Ordenar: Validade Próxima</option>
+                      <option value="maior_preco">Ordenar: Maior Preço</option>
+                      <option value="menor_preco">Ordenar: Menor Preço</option>
+                      <option value="maior_qtd">Ordenar: Maior Quantidade</option>
+                      <option value="menor_qtd">Ordenar: Menor Quantidade</option>
+                    </select>
+
+                    <button
+                      className="btn btn-salvar"
+                      style={{ padding: '6px 12px', fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: '4px' }}
+                      onClick={() => exportarEstoqueCSV(estoque, nomeSupermercadoAtivo)}
+                    >
+                      📥 Exportar CSV
+                    </button>
+
+                    <button
+                      className="btn"
+                      style={{ background: '#4f46e5', color: '#fff', padding: '6px 12px', fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: '4px' }}
+                      onClick={() => setModalEtiquetasVisivel(true)}
+                    >
+                      🏷️ Imprimir Etiquetas
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
+          {modoRelatorioAtual !== 'estoque' && (
+            <div className="linha-input" style={{ marginBottom: '12px' }}>
+              <input
+                type="text"
+                id="buscaRelatorio"
+                className="input-modal"
+                style={{ marginBottom: 0 }}
+                placeholder="Pesquisar no catálogo global..."
+                value={buscaRelatorio}
+                onChange={(e) => setBuscaRelatorio(e.target.value)}
+              />
+              <button className="btn-cam-pequeno" onClick={abrirLeitorRelatorio} title="Escanear Código no Relatório">
+                📷
+              </button>
+            </div>
+          )}
+
           <div className="tabela-relatorio" id="listaRelatorioCheio">
             {modoRelatorioAtual === 'estoque' ? (
               (() => {
                 const t = buscaRelatorio.trim().toLowerCase();
-                const lista = estoque.filter(
-                  (p) => p.codigo.toLowerCase().includes(t) || p.nome.toLowerCase().includes(t)
-                );
+                const hojeStr = new Date().toISOString().split('T')[0];
+
+                let lista = estoque.filter((p) => {
+                  const matchBusca = p.codigo.toLowerCase().includes(t) || p.nome.toLowerCase().includes(t);
+                  if (!matchBusca) return false;
+
+                  if (filtroStatusEstoque === 'vencidos') {
+                    return p.validade && p.validade < hojeStr;
+                  }
+                  if (filtroStatusEstoque === 'vencendo30') {
+                    if (!p.validade) return false;
+                    const diffDays = Math.ceil(
+                      (new Date(p.validade).getTime() - new Date(hojeStr).getTime()) / (1000 * 3600 * 24)
+                    );
+                    return diffDays >= 0 && diffDays <= 30;
+                  }
+                  if (filtroStatusEstoque === 'baixo') {
+                    return p.quantidade <= 5;
+                  }
+                  return true;
+                });
+
+                // Ordenação
+                lista.sort((a, b) => {
+                  if (ordenacaoEstoque === 'nome') return a.nome.localeCompare(b.nome);
+                  if (ordenacaoEstoque === 'validade') return (a.validade || '9999').localeCompare(b.validade || '9999');
+                  if (ordenacaoEstoque === 'maior_preco') return b.preco_venda - a.preco_venda;
+                  if (ordenacaoEstoque === 'menor_preco') return a.preco_venda - b.preco_venda;
+                  if (ordenacaoEstoque === 'maior_qtd') return b.quantidade - a.quantidade;
+                  if (ordenacaoEstoque === 'menor_qtd') return a.quantidade - b.quantidade;
+                  return 0;
+                });
+
                 if (!lista.length) {
                   return (
                     <div style={{ textAlign: 'center', color: 'var(--texto-secundario)', padding: '30px' }}>
-                      Nenhum produto no estoque.
+                      Nenhum produto encontrado com os filtros aplicados.
                     </div>
                   );
                 }
@@ -3033,6 +3486,7 @@ export default function App() {
         onEstornarVenda={handleEstornarVenda}
         operadores={listaOperadores}
         nomeLoja={nomeSupermercadoAtivo}
+        onVerCupom={(venda) => setVendaCupomVer(venda)}
       />
 
       <GraficosVendasModal
@@ -3041,6 +3495,44 @@ export default function App() {
         vendas={vendas}
         estoque={estoque}
         nomeLoja={nomeSupermercadoAtivo}
+      />
+
+      {/* MODAL DE CUPOM DE VENDA / IMPRESSÃO */}
+      <CupomVendaModal
+        visivel={!!vendaCupomVer}
+        onFechar={() => setVendaCupomVer(null)}
+        venda={vendaCupomVer}
+        loja={listaSupermercados.find((l) => l.id === supermercadoAtual) || null}
+      />
+
+      {/* MODAL DE IMPRESSÃO DE ETIQUETAS DE PRATELEIRA */}
+      <EtiquetasModal
+        visivel={modalEtiquetasVisivel}
+        onFechar={() => setModalEtiquetasVisivel(false)}
+        estoque={estoque}
+        loja={listaSupermercados.find((l) => l.id === supermercadoAtual) || null}
+      />
+
+      {/* MODAL DE GESTÃO DO TURNO DE CAIXA, SANGRIA E FECHAMENTO */}
+      <GestaoCaixaModal
+        visivel={modalCaixaVisivel}
+        onFechar={() => setModalCaixaVisivel(false)}
+        sessaoAtiva={sessaoCaixaAtiva}
+        vendasSessao={vendas}
+        movimentacoes={movimentacoesCaixa}
+        onAbrirCaixa={handleAbrirCaixa}
+        onRegistrarMovimentacao={handleRegistrarMovimentacaoCaixa}
+        onFecharCaixa={handleFecharCaixa}
+        operadorAtivo={listaOperadores.find((op) => op.id === operadorAtivoId) || null}
+        loja={listaSupermercados.find((l) => l.id === supermercadoAtual) || null}
+      />
+
+      {/* MODAL DE ALERTAS DE VALIDADE NO WHATSAPP / E-MAIL */}
+      <AlertasWhatsAppModal
+        visivel={modalAlertasWhatsAppVisivel}
+        onFechar={() => setModalAlertasWhatsAppVisivel(false)}
+        estoque={estoque}
+        loja={listaSupermercados.find((l) => l.id === supermercadoAtual) || null}
       />
     </>
   );

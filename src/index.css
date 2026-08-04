@@ -821,4 +821,181 @@ body {
     cursor: pointer;
 }
 
+/* CUPOM TÉRMICO E ETIQUETAS CSS */
+.cupom-termico-box {
+    background: #ffffff;
+    border: 1px dashed #94a3b8;
+    padding: 16px;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 0.82rem;
+    color: #000;
+    line-height: 1.4;
+    border-radius: 4px;
+    box-shadow: inset 0 0 8px rgba(0,0,0,0.03);
+}
+
+.cupom-header {
+    text-align: center;
+}
+
+.cupom-header h4 {
+    margin: 0 0 4px 0;
+    font-size: 1.1rem;
+    font-weight: bold;
+}
+
+.cupom-header p {
+    margin: 2px 0;
+}
+
+.cupom-divisor {
+    text-align: center;
+    color: #64748b;
+    margin: 6px 0;
+    letter-spacing: 1px;
+}
+
+.cupom-tabela {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 8px 0;
+    font-size: 0.8rem;
+}
+
+.cupom-tabela th, .cupom-tabela td {
+    padding: 3px 0;
+}
+
+.cupom-totais {
+    margin-top: 8px;
+}
+
+.cupom-linha-total {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 4px;
+}
+
+.highlight-total {
+    font-size: 0.95rem;
+    border-top: 1px dashed #000;
+    padding-top: 6px;
+    margin-top: 6px;
+}
+
+.cupom-footer {
+    text-align: center;
+    margin-top: 10px;
+}
+
+/* ETIQUETAS DE PRATELEIRA */
+.grid-etiquetas-impressao {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 12px;
+    max-height: 300px;
+    overflow-y: auto;
+    padding: 8px;
+    background: #f1f5f9;
+    border-radius: 8px;
+}
+
+.etiqueta-prateleira-card {
+    background: #ffffff;
+    border: 2px solid #000;
+    padding: 8px;
+    text-align: center;
+    border-radius: 4px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+}
+
+.etiqueta-loja-nome {
+    font-size: 0.65rem;
+    font-weight: bold;
+    text-transform: uppercase;
+    color: #475569;
+    border-bottom: 1px solid #cbd5e1;
+    padding-bottom: 2px;
+    margin-bottom: 4px;
+}
+
+.etiqueta-prod-nome {
+    font-size: 0.82rem;
+    font-weight: bold;
+    color: #000;
+    min-height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1.2;
+}
+
+.etiqueta-preco-box {
+    margin: 6px 0;
+    display: flex;
+    align-items: baseline;
+    justify-content: center;
+    gap: 2px;
+    color: #000;
+}
+
+.etiqueta-rs {
+    font-size: 0.85rem;
+    font-weight: bold;
+}
+
+.etiqueta-valor {
+    font-size: 1.5rem;
+    font-weight: 900;
+}
+
+.etiqueta-barcode {
+    font-family: monospace;
+    font-size: 0.65rem;
+    color: #334155;
+    margin-top: 4px;
+}
+
+.barcode-bars {
+    font-size: 0.8rem;
+    letter-spacing: 2px;
+    font-weight: bold;
+}
+
+/* REGRAS DE IMPRESSÃO (PRINT MEDIA) */
+@media print {
+    body * {
+        visibility: hidden;
+    }
+    .cupom-termico-box, .cupom-termico-box *, .grid-etiquetas-impressao, .grid-etiquetas-impressao * {
+        visibility: visible;
+    }
+    .cupom-termico-box {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 100%;
+        border: none;
+        box-shadow: none;
+    }
+    .grid-etiquetas-impressao {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 100%;
+        max-height: none;
+        background: transparent;
+        grid-template-columns: repeat(3, 1fr);
+    }
+    .modal-overlay, .modal-container {
+        background: transparent !important;
+        box-shadow: none !important;
+        padding: 0 !important;
+        margin: 0 !important;
+    }
+    .btn, .btn-fechar-modal, button {
+        display: none !important;
+    }
+}
+
 
