@@ -146,27 +146,27 @@ export const GestaoCaixaModal: React.FC<GestaoCaixaModalProps> = ({
         ) : (
           <div>
             {/* TABS DE NAVEGAÇÃO INTERNA DO CAIXA */}
-            <div style={{ display: 'flex', gap: '8px', borderBottom: '2px solid #e2e8f0', paddingBottom: '8px', marginBottom: '16px' }}>
+            <div style={{ display: 'flex', gap: '6px', borderBottom: '2px solid #e2e8f0', paddingBottom: '8px', marginBottom: '16px', flexWrap: 'wrap' }}>
               <button
                 className={`btn ${aba === 'status' ? 'btn-salvar' : ''}`}
-                style={{ background: aba === 'status' ? undefined : '#f1f5f9', color: aba === 'status' ? undefined : '#334155' }}
+                style={{ flex: '1 1 120px', padding: '8px 10px', fontSize: '0.82rem', background: aba === 'status' ? undefined : '#f1f5f9', color: aba === 'status' ? undefined : '#334155' }}
                 onClick={() => setAba('status')}
               >
                 📊 Resumo do Turno
               </button>
               <button
                 className={`btn ${aba === 'sangria_suprimento' ? 'btn-salvar' : ''}`}
-                style={{ background: aba === 'sangria_suprimento' ? undefined : '#f1f5f9', color: aba === 'sangria_suprimento' ? undefined : '#334155' }}
+                style={{ flex: '1 1 130px', padding: '8px 10px', fontSize: '0.82rem', background: aba === 'sangria_suprimento' ? undefined : '#f1f5f9', color: aba === 'sangria_suprimento' ? undefined : '#334155' }}
                 onClick={() => setAba('sangria_suprimento')}
               >
                 💸 Sangria / Suprimento
               </button>
               <button
                 className={`btn ${aba === 'fechamento' ? 'btn-salvar' : ''}`}
-                style={{ background: aba === 'fechamento' ? undefined : '#f1f5f9', color: aba === 'fechamento' ? undefined : '#334155' }}
+                style={{ flex: '1 1 120px', padding: '8px 10px', fontSize: '0.82rem', background: aba === 'fechamento' ? undefined : '#f1f5f9', color: aba === 'fechamento' ? undefined : '#334155' }}
                 onClick={() => setAba('fechamento')}
               >
-                🔒 Fechar Caixa (Turno)
+                🔒 Fechar Caixa
               </button>
             </div>
 
@@ -311,7 +311,7 @@ export const GestaoCaixaModal: React.FC<GestaoCaixaModalProps> = ({
                   Digite os valores contados fisicamente na gaveta para o sistema verificar sobras ou faltas.
                 </p>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px', marginBottom: '16px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '10px', marginBottom: '16px' }}>
                   <div>
                     <label style={{ fontSize: '0.8rem', fontWeight: 600, display: 'block', marginBottom: '4px' }}>
                       💵 Dinheiro na Gaveta (R$):

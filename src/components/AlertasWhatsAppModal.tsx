@@ -124,8 +124,8 @@ export const AlertasWhatsAppModal: React.FC<AlertasWhatsAppModalProps> = ({
             rel="noopener noreferrer"
             className="btn"
             style={{
-              flex: 1,
-              minWidth: '220px',
+              flex: '1 1 180px',
+              width: '100%',
               background: '#25D366',
               color: '#fff',
               textAlign: 'center',
@@ -145,7 +145,7 @@ export const AlertasWhatsAppModal: React.FC<AlertasWhatsAppModalProps> = ({
 
           <button
             className="btn btn-salvar"
-            style={{ flex: 1, minWidth: '180px', padding: '12px', fontSize: '0.95rem' }}
+            style={{ flex: '1 1 180px', width: '100%', padding: '12px', fontSize: '0.95rem' }}
             onClick={handleCopiarTexto}
           >
             {copiado ? '✅ Mensagem Copiada!' : '📋 Copiar para E-mail / Clipboard'}
