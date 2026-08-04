@@ -22,6 +22,7 @@ export interface ItemEstoque {
 
 export interface PermissoesLoja {
   caixa: boolean;             // 🛒 PDV & Registro de Vendas
+  gestao_caixa: boolean;      // 💵 Turno de Caixa (Abertura, Sangria e Fechamento)
   estoque: boolean;           // 📦 Cadastro & Gestão de Estoque
   usuarios: boolean;          // 👥 Gestão de Operadores de Caixa & Equipe
   relatorios: boolean;        // 📊 Relatórios Financeiros & Vendas
@@ -29,14 +30,16 @@ export interface PermissoesLoja {
   graficos: boolean;          // 📈 Gráficos & Analytics de Desempenho
   inteligencia_estoque: boolean; // 💡 Inteligência de Compras & Giro
   ocr_ia: boolean;            // 🤖 Consulta Inteligente OCR / IA
-  etiquetas: boolean;         // 🏷️ Impressão de Etiquetas
+  etiquetas: boolean;         // 🏷️ Impressão de Etiquetas & Balança
   alertas: boolean;           // 🔔 Alertas de Validade
+  alertas_whatsapp: boolean;  // 📱 Disparo de Alertas no WhatsApp / E-mail
   baixa_estoque: boolean;     // 🗑️ Baixa Manual & Ajuste de Estoque
   exportar_dados: boolean;    // 📥 Exportação de Relatórios
 }
 
 export interface PermissoesOperador {
   vender: boolean;             // 🛒 Realizar Vendas no Caixa
+  gestao_caixa: boolean;       // 💵 Abrir/Fechar Turno de Caixa e Sangria
   dar_desconto: boolean;       // 💲 Conceder Desconto
   alterar_preco: boolean;      // ✏️ Alterar Preço Unitário de Venda
   estornar_venda: boolean;     // ↩️ Estornar / Cancelar Venda
@@ -48,6 +51,7 @@ export interface PermissoesOperador {
   inteligencia_estoque: boolean; // 💡 Ver Inteligência de Compras & Giro
   gerenciar_equipe: boolean;   // 👥 Gerenciar Outros Funcionários
   imprimir_etiquetas: boolean; // 🏷️ Imprimir Etiquetas
+  alertas_whatsapp: boolean;   // 📱 Disparar Alertas de Validade no WhatsApp
   usar_ocr_ia: boolean;        // 🤖 Usar Consulta Inteligente OCR / IA
   exportar_relatorios: boolean;// 📥 Exportar / Baixar Relatórios
 }
@@ -145,6 +149,7 @@ export interface LogAuditoria {
 
 export const PERMISSOES_LOJA_PADRAO: PermissoesLoja = {
   caixa: true,
+  gestao_caixa: true,
   estoque: true,
   usuarios: true,
   relatorios: true,
@@ -154,12 +159,14 @@ export const PERMISSOES_LOJA_PADRAO: PermissoesLoja = {
   ocr_ia: true,
   etiquetas: true,
   alertas: true,
+  alertas_whatsapp: true,
   baixa_estoque: true,
   exportar_dados: true,
 };
 
 export const PERMISSOES_CAIXA_PADRAO: PermissoesOperador = {
   vender: true,
+  gestao_caixa: true,
   dar_desconto: false,
   alterar_preco: false,
   estornar_venda: false,
@@ -171,12 +178,14 @@ export const PERMISSOES_CAIXA_PADRAO: PermissoesOperador = {
   inteligencia_estoque: false,
   gerenciar_equipe: false,
   imprimir_etiquetas: true,
+  alertas_whatsapp: false,
   usar_ocr_ia: true,
   exportar_relatorios: false,
 };
 
 export const PERMISSOES_ADMIN_PADRAO: PermissoesOperador = {
   vender: true,
+  gestao_caixa: true,
   dar_desconto: true,
   alterar_preco: true,
   estornar_venda: true,
@@ -188,6 +197,7 @@ export const PERMISSOES_ADMIN_PADRAO: PermissoesOperador = {
   inteligencia_estoque: true,
   gerenciar_equipe: true,
   imprimir_etiquetas: true,
+  alertas_whatsapp: true,
   usar_ocr_ia: true,
   exportar_relatorios: true,
 };

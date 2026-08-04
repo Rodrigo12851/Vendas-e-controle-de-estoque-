@@ -671,6 +671,7 @@ export default function App() {
   const marcarTodasPermissoesLoja = (status: boolean) => {
     setRegLojaPermissoes({
       caixa: status,
+      gestao_caixa: status,
       estoque: status,
       usuarios: status,
       relatorios: status,
@@ -680,6 +681,7 @@ export default function App() {
       ocr_ia: status,
       etiquetas: status,
       alertas: status,
+      alertas_whatsapp: status,
       baixa_estoque: status,
       exportar_dados: status,
     });
@@ -1976,8 +1978,10 @@ export default function App() {
             className="sidebar-item"
             style={{ fontWeight: 600, background: '#e0f2fe', color: '#0369a1', borderRadius: '6px' }}
             onClick={() => {
-              setModalCaixaVisivel(true);
-              fecharMenu();
+              if (verificarPermissaoOuAvisar('gestao_caixa', 'gestao_caixa', 'Gestão de Caixa / Turno')) {
+                setModalCaixaVisivel(true);
+                fecharMenu();
+              }
             }}
           >
             💵 Gestão de Caixa (Abertura, Sangria & Turno) {!sessaoCaixaAtiva || sessaoCaixaAtiva.status === 'fechado' ? '🔴 Fechado' : '🟢 Aberto'}
@@ -1987,8 +1991,10 @@ export default function App() {
             className="sidebar-item"
             style={{ fontWeight: 600, background: '#dcfce7', color: '#15803d', borderRadius: '6px' }}
             onClick={() => {
-              setModalAlertasWhatsAppVisivel(true);
-              fecharMenu();
+              if (verificarPermissaoOuAvisar('alertas_whatsapp', 'alertas_whatsapp', 'Alertas WhatsApp / E-mail')) {
+                setModalAlertasWhatsAppVisivel(true);
+                fecharMenu();
+              }
             }}
           >
             📱 Alerta de Validade no WhatsApp / E-mail
@@ -1997,8 +2003,10 @@ export default function App() {
           <div
             className="sidebar-item"
             onClick={() => {
-              setModalEtiquetasVisivel(true);
-              fecharMenu();
+              if (verificarPermissaoOuAvisar('etiquetas', 'imprimir_etiquetas', 'Imprimir Etiquetas')) {
+                setModalEtiquetasVisivel(true);
+                fecharMenu();
+              }
             }}
           >
             🏷️ Imprimir Etiquetas de Prateleira
@@ -2019,8 +2027,10 @@ export default function App() {
           <div
             className="sidebar-item"
             onClick={() => {
-              abrirRelatorioVendas();
-              fecharMenu();
+              if (verificarPermissaoOuAvisar('relatorios', 'ver_relatorios', 'Relatório de Vendas')) {
+                abrirRelatorioVendas();
+                fecharMenu();
+              }
             }}
           >
             🧾 Relatório de Vendas (Histórico, Estorno & Cupom)
@@ -2041,8 +2051,10 @@ export default function App() {
           <div
             className="sidebar-item"
             onClick={() => {
-              abrirGraficosVendas();
-              fecharMenu();
+              if (verificarPermissaoOuAvisar('graficos', 'ver_graficos', 'Gráficos & Inteligência')) {
+                abrirGraficosVendas();
+                fecharMenu();
+              }
             }}
           >
             📈 Gráficos & Inteligência de Estoque (Dono)
@@ -2604,6 +2616,7 @@ export default function App() {
               <div className="grid-permissoes">
                 {[
                   { key: 'caixa', icon: '🛒', title: 'PDV / Caixa', desc: 'Permite realizar vendas e registrar saídas no caixa' },
+                  { key: 'gestao_caixa', icon: '💵', title: 'Gestão de Caixa & Sangria', desc: 'Abertura de turno, suprimento, sangria e fechamento conferido' },
                   { key: 'estoque', icon: '📦', title: 'Gestão de Estoque', desc: 'Permite cadastrar produtos, preços, marcas e lotes' },
                   { key: 'usuarios', icon: '👥', title: 'Gestão de Equipe', desc: 'Permite cadastrar e gerenciar operadores de caixa' },
                   { key: 'relatorios', icon: '📊', title: 'Relatórios de Vendas', desc: 'Acesso ao histórico de vendas e faturamento' },
@@ -2611,8 +2624,9 @@ export default function App() {
                   { key: 'graficos', icon: '📈', title: 'Gráficos & Analytics', desc: 'Acesso aos gráficos e curva de faturamento' },
                   { key: 'inteligencia_estoque', icon: '💡', title: 'Inteligência de Estoque', desc: 'Sugestões de reposição, giro de caixa e perdas' },
                   { key: 'ocr_ia', icon: '🤖', title: 'Consulta OCR / IA', desc: 'Leitura de rótulos com câmera e inteligência artificial' },
-                  { key: 'etiquetas', icon: '🏷️', title: 'Impressão de Etiquetas', desc: 'Geração e impressão de etiquetas térmicas com barras' },
+                  { key: 'etiquetas', icon: '🏷️', title: 'Impressão de Etiquetas & Balança', desc: 'Geração de etiquetas térmicas e leitura de balança Toledo/Filizola' },
                   { key: 'alertas', icon: '🔔', title: 'Alertas de Validade', desc: 'Notificação automática de produtos a vencer' },
+                  { key: 'alertas_whatsapp', icon: '📱', title: 'Alertas WhatsApp / E-mail', desc: 'Envio e disparo automático de alertas no WhatsApp' },
                   { key: 'baixa_estoque', icon: '🗑️', title: 'Baixa & Descarte', desc: 'Ajuste manual e descarte por perda ou avaria' },
                   { key: 'exportar_dados', icon: '📥', title: 'Exportação de Dados', desc: 'Download de relatórios em Excel, CSV e PDF' },
                 ].map((item) => {
@@ -2920,6 +2934,7 @@ export default function App() {
             <div className="grid-permissoes">
               {[
                 { key: 'vender', icon: '🛒', title: 'Realizar Vendas', desc: 'Registrar saídas no caixa do PDV e finalizar compras' },
+                { key: 'gestao_caixa', icon: '💵', title: 'Gestão de Caixa / Turno', desc: 'Abrir e fechar caixa, registrar sangrias e conferir gaveta' },
                 { key: 'dar_desconto', icon: '💲', title: 'Dar Desconto', desc: 'Aplicar desconto no valor total da venda' },
                 { key: 'alterar_preco', icon: '✏️', title: 'Alterar Preço', desc: 'Mudar o valor unitário de venda do produto' },
                 { key: 'estornar_venda', icon: '↩️', title: 'Estornar / Cancelar Venda', desc: 'Cancelar venda e retornar itens ao estoque' },
@@ -2931,6 +2946,7 @@ export default function App() {
                 { key: 'inteligencia_estoque', icon: '💡', title: 'Inteligência de Compras', desc: 'Ver recomendações de reposição e itens parados' },
                 { key: 'gerenciar_equipe', icon: '👥', title: 'Gerenciar Caixas', desc: 'Cadastrar e editar outros funcionários' },
                 { key: 'imprimir_etiquetas', icon: '🏷️', title: 'Imprimir Etiquetas', desc: 'Gerar e imprimir etiquetas térmicas e códigos' },
+                { key: 'alertas_whatsapp', icon: '📱', title: 'Alerta Validade WhatsApp', desc: 'Enviar e disparar relatórios de validade para WhatsApp/E-mail' },
                 { key: 'usar_ocr_ia', icon: '🤖', title: 'Usar Leitor OCR/IA', desc: 'Scanner com inteligência artificial para ler embalagens' },
                 { key: 'exportar_relatorios', icon: '📥', title: 'Exportar Relatórios', desc: 'Baixar arquivos de vendas em CSV/PDF' },
               ].map((item) => {
