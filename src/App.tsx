@@ -43,6 +43,10 @@ import {
   salvarProdutoCatalogoFirestore,
   salvarVendaFirestore,
   salvarOperadorFirestore,
+  excluirItemEstoqueFirestore,
+  excluirProdutoCatalogoFirestore,
+  excluirSupermercadoFirestore,
+  excluirOperadorFirestore,
   inicializarDadosIniciaisFirestore,
 } from './lib/firestoreSync';
 
@@ -153,6 +157,10 @@ export default function App() {
   const [lojaEditandoId, setLojaEditandoId] = useState<string | null>(null);
   const [buscaLoja, setBuscaLoja] = useState<string>('');
   const [senhasVisiveisLista, setSenhasVisiveisLista] = useState<Record<string, boolean>>({});
+
+  const [abaDonaApp, setAbaDonaApp] = useState<'supermercados' | 'banco_dados'>('supermercados');
+  const [buscaMasterBd, setBuscaMasterBd] = useState<string>('');
+  const [filtroMasterOrigem, setFiltroMasterOrigem] = useState<'todos' | 'catalogo' | 'estoque'>('todos');
 
   const [regLojaNome, setRegLojaNome] = useState<string>('');
   const [regLojaCnpj, setRegLojaCnpj] = useState<string>('');
@@ -839,6 +847,49 @@ export default function App() {
     setMsgRegLoja(<span style={{ color: 'var(--primario)' }}>Editando: {loja.nome}</span>);
   };
 
+  const excluirSupermercado = (idLoja: string) => {
+    const lojaExcluir = listaSupermercados.find((l) => l.id === idLoja);
+    if (!lojaExcluir) return;
+    if (confirm(`Deseja realmente excluir o supermercado "${lojaExcluir.nome}" (${lojaExcluir.cnpj}) do banco de dados?`)) {
+      const novaLista = listaSupermercados.filter((l) => l.id !== idLoja);
+      setListaSupermercados(novaLista);
+      localStorage.setItem('lista_supermercados_app', JSON.stringify(novaLista));
+      excluirSupermercadoFirestore(idLoja);
+      if (supermercadoAtual === idLoja && novaLista.length > 0) {
+        alternarLojaAtiva(novaLista[0]);
+      }
+      setMsgRegLoja(<span style={{ color: 'var(--sucesso)' }}>🗑️ Supermercado excluído do banco de dados!</span>);
+      setTimeout(() => setMsgRegLoja(''), 2500);
+    }
+  };
+
+  const excluirProdutoCatalogoMaster = (codigo: string) => {
+    const prod = catalogoGlobal.find((c) => c.codigo === codigo);
+    const nomeProd = prod ? prod.nome : codigo;
+    if (confirm(`[Dona do App] Deseja excluir permanentemente o produto "${nomeProd}" (Cód: ${codigo}) do Catálogo Global?`)) {
+      const novoCat = catalogoGlobal.filter((c) => c.codigo !== codigo);
+      setCatalogoGlobal(novoCat);
+      localStorage.setItem('catalogoGlobalFirebase', JSON.stringify(novoCat));
+      excluirProdutoCatalogoFirestore(codigo);
+      alert(`🗑️ Produto "${nomeProd}" excluído do Catálogo Global!`);
+    }
+  };
+
+  const excluirItemEstoqueMaster = (codigo: string, validade: string, lote: string, lojaId: string) => {
+    const lojaNome = listaSupermercados.find((l) => l.id === lojaId)?.nome || lojaId;
+    if (confirm(`[Dona do App] Deseja excluir este item de estoque da loja "${lojaNome}"?`)) {
+      if (lojaId === supermercadoAtual) {
+        const novoEstoque = estoque.filter(
+          (p) => !(p.codigo === codigo && p.validade === validade && p.lote === lote)
+        );
+        setEstoque(novoEstoque);
+        localStorage.setItem(`estoque_${supermercadoAtual}`, JSON.stringify(novoEstoque));
+      }
+      excluirItemEstoqueFirestore(codigo, validade, lote, lojaId);
+      alert('🗑️ Item removido do estoque da loja!');
+    }
+  };
+
   // --- OPERATOR / CASHIER MANAGEMENT HANDLERS ---
   const abrirModalOperadores = () => {
     fecharMenu();
@@ -1050,24 +1101,6 @@ export default function App() {
     const estSalvo = localStorage.getItem(`estoque_${loja.id}`);
     setEstoque(estSalvo ? JSON.parse(estSalvo) : []);
     notificarSincronizacao();
-  };
-
-  const excluirSupermercado = (idLoja: string) => {
-    if (listaSupermercados.length <= 1) {
-      alert('É necessário ter pelo menos um supermercado cadastrado!');
-      return;
-    }
-    if (confirm('Tem certeza que deseja excluir esta loja?')) {
-      const novaLista = listaSupermercados.filter((l) => l.id !== idLoja);
-      setListaSupermercados(novaLista);
-      localStorage.setItem('lista_supermercados_app', JSON.stringify(novaLista));
-
-      if (supermercadoAtual === idLoja) {
-        const proxima = novaLista[0];
-        alternarLojaAtiva(proxima);
-      }
-      notificarSincronizacao();
-    }
   };
 
   const toggleVisibilidadeSenhaLoja = (idLoja: string) => {
@@ -1613,6 +1646,7 @@ export default function App() {
       );
       setEstoque(novoEstoque);
       localStorage.setItem(`estoque_${supermercadoAtual}`, JSON.stringify(novoEstoque));
+      excluirItemEstoqueFirestore(cod, val, lote, supermercadoAtual);
       notificarSincronizacao();
     }
   };
@@ -2097,19 +2131,6 @@ export default function App() {
             }}
           >
             💵 Gestão de Caixa (Abertura, Sangria & Turno) {!sessaoCaixaAtiva || sessaoCaixaAtiva.status === 'fechado' ? '🔴 Fechado' : '🟢 Aberto'}
-          </div>
-
-          <div
-            className="sidebar-item"
-            style={{ fontWeight: 600, background: '#dcfce7', color: '#15803d', borderRadius: '6px' }}
-            onClick={() => {
-              if (verificarPermissaoOuAvisar('alertas_whatsapp', 'alertas_whatsapp', 'Alertas WhatsApp / E-mail')) {
-                setModalAlertasWhatsAppVisivel(true);
-                fecharMenu();
-              }
-            }}
-          >
-            📱 Alerta de Validade no WhatsApp / E-mail
           </div>
 
           <div
@@ -2621,13 +2642,53 @@ export default function App() {
         style={{ display: modalSupermercadoVisivel ? 'flex' : 'none' }}
       >
         <div className="cabecalho-relatorio">
-          <h2>🏢 Gestão e Cadastro de Supermercados</h2>
+          <h2>👑 Painel Administrativo da Dona do Aplicativo</h2>
           <button className="btn-voltar-rel" onClick={() => setModalSupermercadoVisivel(false)}>
             Voltar
           </button>
         </div>
         <div className="corpo-relatorio-cheio">
-          {/* SEÇÃO 1: FORMULÁRIO DE CADASTRO / EDIÇÃO */}
+          {/* ABAS DE NAVEGAÇÃO DO PAINEL DA DONA DO APP */}
+          <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', borderBottom: '2px solid #cbd5e1', paddingBottom: '12px', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              style={{
+                padding: '10px 18px',
+                borderRadius: '8px',
+                fontWeight: 700,
+                fontSize: '0.9rem',
+                cursor: 'pointer',
+                border: 'none',
+                background: abaDonaApp === 'supermercados' ? 'var(--primario)' : '#f1f5f9',
+                color: abaDonaApp === 'supermercados' ? '#ffffff' : '#334155',
+                boxShadow: abaDonaApp === 'supermercados' ? '0 2px 4px rgba(0,0,0,0.1)' : 'none',
+              }}
+              onClick={() => setAbaDonaApp('supermercados')}
+            >
+              🏢 Supermercados, Planos & Limites
+            </button>
+            <button
+              type="button"
+              style={{
+                padding: '10px 18px',
+                borderRadius: '8px',
+                fontWeight: 700,
+                fontSize: '0.9rem',
+                cursor: 'pointer',
+                border: 'none',
+                background: abaDonaApp === 'banco_dados' ? 'var(--primario)' : '#f1f5f9',
+                color: abaDonaApp === 'banco_dados' ? '#ffffff' : '#334155',
+                boxShadow: abaDonaApp === 'banco_dados' ? '0 2px 4px rgba(0,0,0,0.1)' : 'none',
+              }}
+              onClick={() => setAbaDonaApp('banco_dados')}
+            >
+              🗄️ Banco de Dados Master (Editar / Excluir Itens)
+            </button>
+          </div>
+
+          {abaDonaApp === 'supermercados' ? (
+            <>
+              {/* SEÇÃO 1: FORMULÁRIO DE CADASTRO / EDIÇÃO */}
           <div
             style={{
               background: 'var(--branco)',
@@ -2984,6 +3045,205 @@ export default function App() {
               })()}
             </div>
           </div>
+            </>
+          ) : (
+            /* SEÇÃO 2: BANCO DE DADOS MASTER - DONA DO APP */
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div style={{ background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: '10px', padding: '14px', color: '#0369a1' }}>
+                <h3 style={{ fontSize: '1rem', fontWeight: 700, marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  👑 Acesso Exclusivo da Dona do Aplicativo - Gerenciador Geral de Banco de Dados
+                </h3>
+                <p style={{ fontSize: '0.84rem', margin: 0, color: '#0284c7' }}>
+                  Como proprietária do aplicativo, você possui privilégio master para consultar, <b>editar informações</b> ou <b>excluir permanentemente qualquer item</b> do Catálogo Global ou do Estoque de qualquer loja cadastrada no banco de dados.
+                </p>
+              </div>
+
+              {/* FILTROS E BUSCA DO BANCO DE DADOS */}
+              <div style={{ background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: '10px', padding: '14px', display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', gap: '10px', flex: 1, minWidth: '280px', flexWrap: 'wrap' }}>
+                  <input
+                    type="text"
+                    className="input-modal"
+                    style={{ marginBottom: 0, flex: 1, minWidth: '220px' }}
+                    placeholder="🔍 Pesquisar no Banco de Dados (Nome, Código EAN, Lote...)"
+                    value={buscaMasterBd}
+                    onChange={(e) => setBuscaMasterBd(e.target.value)}
+                  />
+                  <select
+                    className="input-modal"
+                    style={{ marginBottom: 0, width: 'auto', minWidth: '160px' }}
+                    value={filtroMasterOrigem}
+                    onChange={(e) => setFiltroMasterOrigem(e.target.value as any)}
+                  >
+                    <option value="todos">Origem: Todos os Itens</option>
+                    <option value="catalogo">🌐 Catálogo Global ({catalogoGlobal.length})</option>
+                    <option value="estoque">🏪 Estoque Local ({estoque.length})</option>
+                  </select>
+                </div>
+
+                <button
+                  className="btn-acao-rel"
+                  style={{ background: 'var(--primario)', color: '#fff', padding: '10px 16px', fontWeight: 600, fontSize: '0.88rem' }}
+                  onClick={() => {
+                    setModalSupermercadoVisivel(false);
+                    abrirCadastro();
+                  }}
+                >
+                  ➕ Cadastrar Novo Item no Banco de Dados
+                </button>
+              </div>
+
+              {/* TABELA DE ITENS DO BANCO DE DADOS */}
+              <div className="tabela-relatorio">
+                {(() => {
+                  const termo = buscaMasterBd.trim().toLowerCase();
+
+                  // 1. Filter Catalogo Global
+                  const catalogoFiltrado = catalogoGlobal.filter((c) => {
+                    if (filtroMasterOrigem === 'estoque') return false;
+                    if (!termo) return true;
+                    return (
+                      c.codigo.toLowerCase().includes(termo) ||
+                      (c.nome && c.nome.toLowerCase().includes(termo)) ||
+                      (c.marca && c.marca.toLowerCase().includes(termo)) ||
+                      (c.categoria && c.categoria.toLowerCase().includes(termo))
+                    );
+                  });
+
+                  // 2. Filter Estoque
+                  const estoqueFiltrado = estoque.filter((p) => {
+                    if (filtroMasterOrigem === 'catalogo') return false;
+                    if (!termo) return true;
+                    return (
+                      p.codigo.toLowerCase().includes(termo) ||
+                      p.nome.toLowerCase().includes(termo) ||
+                      (p.lote && p.lote.toLowerCase().includes(termo))
+                    );
+                  });
+
+                  const totalCount = catalogoFiltrado.length + estoqueFiltrado.length;
+
+                  if (totalCount === 0) {
+                    return (
+                      <div style={{ textAlign: 'center', padding: '30px', color: '#64748b' }}>
+                        Nenhum item encontrado no banco de dados com os termos da busca.
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      {/* ITENS DO CATÁLOGO GLOBAL */}
+                      {catalogoFiltrado.map((cat) => (
+                        <div
+                          key={`cat_${cat.codigo}`}
+                          className="relatorio-linha-cheia"
+                          style={{ background: '#fafafa', borderLeft: '4px solid #0284c7' }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1, minWidth: 0 }}>
+                            <div style={{ width: '48px', height: '48px', borderRadius: '8px', background: '#e2e8f0', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                              {cat.imagem ? (
+                                <img src={cat.imagem} alt={cat.nome} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                              ) : (
+                                <span style={{ fontSize: '1.2rem' }}>📦</span>
+                              )}
+                            </div>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                                <b style={{ fontSize: '0.92rem', color: '#0f172a' }}>{cat.nome}</b>
+                                <span style={{ background: '#e0f2fe', color: '#0369a1', fontSize: '0.7rem', padding: '2px 8px', borderRadius: '12px', fontWeight: 700 }}>
+                                  🌐 Catálogo Global
+                                </span>
+                              </div>
+                              <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: '2px' }}>
+                                Cód. EAN: <b>{cat.codigo}</b> | Categoria: <b>{cat.categoria || 'Geral'}</b> {cat.marca ? `| Marca: ${cat.marca}` : ''}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="acoes-relatorio" style={{ gap: '6px' }}>
+                            <button
+                              className="btn-acao-rel btn-editar-rel"
+                              onClick={() => {
+                                setModalSupermercadoVisivel(false);
+                                editarProduto(cat.codigo, '', '');
+                              }}
+                              title="Editar este item"
+                            >
+                              ✏️ Editar
+                            </button>
+                            <button
+                              className="btn-acao-rel btn-excluir-rel"
+                              onClick={() => excluirProdutoCatalogoMaster(cat.codigo)}
+                              title="Excluir do Banco de Dados"
+                            >
+                              🗑️ Excluir
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+
+                      {/* ITENS DO ESTOQUE */}
+                      {estoqueFiltrado.map((p) => {
+                        const nomeLoja = listaSupermercados.find((l) => l.id === supermercadoAtual)?.nome || 'Loja Atual';
+                        return (
+                          <div
+                            key={`est_${p.codigo}_${p.validade}_${p.lote}`}
+                            className="relatorio-linha-cheia"
+                            style={{ background: '#ffffff', borderLeft: '4px solid #16a34a' }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1, minWidth: 0 }}>
+                              <div style={{ width: '48px', height: '48px', borderRadius: '8px', background: '#e2e8f0', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                {p.foto ? (
+                                  <img src={p.foto} alt={p.nome} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                ) : (
+                                  <span style={{ fontSize: '1.2rem' }}>🛒</span>
+                                )}
+                              </div>
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                                  <b style={{ fontSize: '0.92rem', color: '#0f172a' }}>{p.nome}</b>
+                                  <span style={{ background: '#dcfce7', color: '#15803d', fontSize: '0.7rem', padding: '2px 8px', borderRadius: '12px', fontWeight: 700 }}>
+                                    🏪 Estoque ({nomeLoja})
+                                  </span>
+                                </div>
+                                <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: '2px' }}>
+                                  Cód: <b>{p.codigo}</b> | Qtd: <b style={{ color: '#0f172a' }}>{p.quantidade} un</b> | Venda: <b style={{ color: '#16a34a' }}>R$ {p.preco_venda.toFixed(2)}</b> | Custo: R$ {(p.preco_custo || 0).toFixed(2)}
+                                </div>
+                                <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '1px' }}>
+                                  Validade: <b>{p.validade || 'N/A'}</b> {p.lote ? `| Lote: ${p.lote}` : ''}
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="acoes-relatorio" style={{ gap: '6px' }}>
+                              <button
+                                className="btn-acao-rel btn-editar-rel"
+                                onClick={() => {
+                                  setModalSupermercadoVisivel(false);
+                                  editarProduto(p.codigo, p.validade, p.lote || '');
+                                }}
+                                title="Editar no Estoque"
+                              >
+                                ✏️ Editar
+                              </button>
+                              <button
+                                className="btn-acao-rel btn-excluir-rel"
+                                onClick={() => excluirItemEstoqueMaster(p.codigo, p.validade, p.lote || '', supermercadoAtual)}
+                                title="Excluir do Banco de Dados"
+                              >
+                                🗑️ Excluir
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -3553,15 +3813,67 @@ export default function App() {
       {/* NOTIFICATIONS MODAL */}
       <div className="modal" id="modalNotificacoes" style={{ display: modalNotificacoesVisivel ? 'flex' : 'none' }}>
         <div className="modal-conteudo">
-          <div className="cab-modal">Alertas de Vencimento</div>
+          <div className="cab-modal" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span>🔔 Notificações e Alertas de Vencimento</span>
+          </div>
           <div className="corpo-modal" id="corpo-notificacoes">
+            {/* DESTAQUE INTEGRADO: ALERTA DE VALIDADE NO WHATSAPP */}
+            <div
+              style={{
+                background: '#dcfce7',
+                border: '1px solid #86efac',
+                borderRadius: '10px',
+                padding: '12px 14px',
+                marginBottom: '16px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '8px',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+                <div style={{ fontWeight: 700, fontSize: '0.88rem', color: '#14532d', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span>📱</span>
+                  <span>Alerta de Validade no WhatsApp / E-mail</span>
+                </div>
+                <button
+                  type="button"
+                  style={{
+                    background: '#25d366',
+                    color: '#ffffff',
+                    border: 'none',
+                    borderRadius: '6px',
+                    padding: '8px 14px',
+                    fontWeight: 700,
+                    fontSize: '0.82rem',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    boxShadow: '0 2px 4px rgba(37,211,102,0.3)',
+                  }}
+                  onClick={() => {
+                    setModalNotificacoesVisivel(false);
+                    if (verificarPermissaoOuAvisar('alertas_whatsapp', 'alertas_whatsapp', 'Alertas WhatsApp / E-mail')) {
+                      setModalAlertasWhatsAppVisivel(true);
+                    }
+                  }}
+                >
+                  <span>💬</span>
+                  <span>Enviar Relatório no WhatsApp</span>
+                </button>
+              </div>
+              <p style={{ margin: 0, fontSize: '0.78rem', color: '#166534', lineHeight: 1.4 }}>
+                Envie a lista completa de produtos vencidos ou próximos de vencer para o WhatsApp/E-mail para providenciar a liquidação ou troca.
+              </p>
+            </div>
+
             {proximoVencimento.length === 0 ? (
               <div style={{ textAlign: 'center', color: 'var(--texto-secundario)', padding: '20px' }}>
                 Nenhum alerta de validade no momento. 👍
               </div>
             ) : (
               <>
-                <h4 style={{ color: '#d97706', fontSize: '0.9rem', marginBottom: '8px' }}>⚠️ Alertas de Validade</h4>
+                <h4 style={{ color: '#d97706', fontSize: '0.9rem', marginBottom: '8px', fontWeight: 700 }}>⚠️ Itens Próximos do Vencimento ({proximoVencimento.length})</h4>
                 {proximoVencimento.map((p) => {
                   const dataVal = new Date(p.validade + 'T00:00:00');
                   const dias = Math.round((dataVal.getTime() - hoje.getTime()) / 86400000);
@@ -3588,30 +3900,63 @@ export default function App() {
                       key={`notif_${p.codigo}_${p.validade}_${p.lote}`}
                       style={{
                         background: corFundo,
-                        padding: '8px',
-                        borderRadius: '6px',
-                        marginBottom: '6px',
+                        padding: '10px 12px',
+                        borderRadius: '8px',
+                        marginBottom: '8px',
                         fontSize: '0.85rem',
                         display: 'flex',
                         justifyContent: 'space-between',
                         alignItems: 'center',
+                        gap: '8px',
+                        border: '1px solid rgba(0,0,0,0.05)',
                       }}
                     >
-                      <div>
-                        <b>{p.nome}</b>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <b style={{ color: '#0f172a', fontSize: '0.88rem' }}>{p.nome}</b>
                         <br />
-                        <small>
+                        <small style={{ color: '#475569' }}>
                           Qtd: <b>{p.quantidade} un</b> | Lote: {p.lote || 'N/D'} |{' '}
-                          <span style={{ color: corTexto, fontWeight: 600 }}>{textoStatus}</span>
+                          <span style={{ color: corTexto, fontWeight: 700 }}>{textoStatus}</span>
                         </small>
                       </div>
-                      <button
-                        className="btn"
-                        style={{ background: 'var(--primario)', color: '#fff', padding: '6px 10px', fontSize: '0.75rem' }}
-                        onClick={() => abrirVenda(p.codigo, p.validade, p.lote || '')}
-                      >
-                        Ver
-                      </button>
+
+                      <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
+                        <button
+                          type="button"
+                          className="btn"
+                          style={{
+                            background: '#25d366',
+                            color: '#ffffff',
+                            padding: '6px 10px',
+                            fontSize: '0.75rem',
+                            fontWeight: 700,
+                            border: 'none',
+                            borderRadius: '6px',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                          }}
+                          title="Enviar Alerta Deste Item no WhatsApp"
+                          onClick={() => {
+                            const msg = `🚨 *ALERTA DE VALIDADE*\n🏪 *Loja:* ${nomeSupermercadoAtivo}\n📦 *Produto:* ${p.nome}\n🔢 *Cód:* ${p.codigo}\n📅 *Validade:* ${p.validade} (${textoStatus})\n📊 *Estoque:* ${p.quantidade} un`;
+                            window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
+                          }}
+                        >
+                          💬 Zap
+                        </button>
+
+                        <button
+                          className="btn"
+                          style={{ background: 'var(--primario)', color: '#fff', padding: '6px 10px', fontSize: '0.75rem', borderRadius: '6px' }}
+                          onClick={() => {
+                            setModalNotificacoesVisivel(false);
+                            abrirVenda(p.codigo, p.validade, p.lote || '');
+                          }}
+                        >
+                          Ver
+                        </button>
+                      </div>
                     </div>
                   );
                 })}

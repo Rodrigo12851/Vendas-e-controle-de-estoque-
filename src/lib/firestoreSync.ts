@@ -178,6 +178,47 @@ export async function salvarOperadorFirestore(op: OperadorCaixa) {
   }
 }
 
+// Delete Item do Estoque
+export async function excluirItemEstoqueFirestore(codigo: string, validade: string, lote: string, lojaId: string) {
+  try {
+    const docId = `${lojaId}_${codigo}_${validade || 'semval'}_${lote || 'semlote'}`;
+    const docRef = doc(db, 'estoque', docId);
+    await deleteDoc(docRef);
+  } catch (err) {
+    console.error('Erro ao excluir item do estoque no Firestore:', err);
+  }
+}
+
+// Delete Produto do Catálogo Global
+export async function excluirProdutoCatalogoFirestore(codigo: string) {
+  try {
+    const docRef = doc(db, 'produtos_catalogo', codigo);
+    await deleteDoc(docRef);
+  } catch (err) {
+    console.error('Erro ao excluir produto do catálogo no Firestore:', err);
+  }
+}
+
+// Delete Supermercado
+export async function excluirSupermercadoFirestore(lojaId: string) {
+  try {
+    const docRef = doc(db, 'supermercados', lojaId);
+    await deleteDoc(docRef);
+  } catch (err) {
+    console.error('Erro ao excluir supermercado no Firestore:', err);
+  }
+}
+
+// Delete Operador
+export async function excluirOperadorFirestore(opId: string) {
+  try {
+    const docRef = doc(db, 'operadores', opId);
+    await deleteDoc(docRef);
+  } catch (err) {
+    console.error('Erro ao excluir operador no Firestore:', err);
+  }
+}
+
 // Seed Initial Data into Firestore if collections are empty
 export async function inicializarDadosIniciaisFirestore(
   lojasIniciais: Supermercado[],
