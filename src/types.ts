@@ -25,21 +25,31 @@ export interface PermissoesLoja {
   estoque: boolean;           // 📦 Cadastro & Gestão de Estoque
   usuarios: boolean;          // 👥 Gestão de Operadores de Caixa & Equipe
   relatorios: boolean;        // 📊 Relatórios Financeiros & Vendas
+  estorno: boolean;           // ↩️ Estorno & Cancelamento de Vendas
+  graficos: boolean;          // 📈 Gráficos & Analytics de Desempenho
+  inteligencia_estoque: boolean; // 💡 Inteligência de Compras & Giro
   ocr_ia: boolean;            // 🤖 Consulta Inteligente OCR / IA
   etiquetas: boolean;         // 🏷️ Impressão de Etiquetas
   alertas: boolean;           // 🔔 Alertas de Validade
   baixa_estoque: boolean;     // 🗑️ Baixa Manual & Ajuste de Estoque
+  exportar_dados: boolean;    // 📥 Exportação de Relatórios
 }
 
 export interface PermissoesOperador {
   vender: boolean;             // 🛒 Realizar Vendas no Caixa
   dar_desconto: boolean;       // 💲 Conceder Desconto
   alterar_preco: boolean;      // ✏️ Alterar Preço Unitário de Venda
+  estornar_venda: boolean;     // ↩️ Estornar / Cancelar Venda
   cadastrar_produtos: boolean; // 📦 Cadastrar/Editar Produtos
+  excluir_produtos: boolean;   // ❌ Excluir Produtos/Lotes
   baixa_estoque: boolean;      // 🗑️ Dar Baixa Manual em Estoque
   ver_relatorios: boolean;     // 📊 Ver Faturamento & Relatórios
+  ver_graficos: boolean;       // 📈 Ver Gráficos & Desempenho
+  inteligencia_estoque: boolean; // 💡 Ver Inteligência de Compras & Giro
   gerenciar_equipe: boolean;   // 👥 Gerenciar Outros Funcionários
   imprimir_etiquetas: boolean; // 🏷️ Imprimir Etiquetas
+  usar_ocr_ia: boolean;        // 🤖 Usar Consulta Inteligente OCR / IA
+  exportar_relatorios: boolean;// 📥 Exportar / Baixar Relatórios
 }
 
 export interface OperadorCaixa {
@@ -97,30 +107,46 @@ export const PERMISSOES_LOJA_PADRAO: PermissoesLoja = {
   estoque: true,
   usuarios: true,
   relatorios: true,
+  estorno: true,
+  graficos: true,
+  inteligencia_estoque: true,
   ocr_ia: true,
   etiquetas: true,
   alertas: true,
   baixa_estoque: true,
+  exportar_dados: true,
 };
 
 export const PERMISSOES_CAIXA_PADRAO: PermissoesOperador = {
   vender: true,
   dar_desconto: false,
   alterar_preco: false,
+  estornar_venda: false,
   cadastrar_produtos: false,
+  excluir_produtos: false,
   baixa_estoque: false,
   ver_relatorios: false,
+  ver_graficos: false,
+  inteligencia_estoque: false,
   gerenciar_equipe: false,
   imprimir_etiquetas: true,
+  usar_ocr_ia: true,
+  exportar_relatorios: false,
 };
 
 export const PERMISSOES_ADMIN_PADRAO: PermissoesOperador = {
   vender: true,
   dar_desconto: true,
   alterar_preco: true,
+  estornar_venda: true,
   cadastrar_produtos: true,
+  excluir_produtos: true,
   baixa_estoque: true,
   ver_relatorios: true,
+  ver_graficos: true,
+  inteligencia_estoque: true,
   gerenciar_equipe: true,
   imprimir_etiquetas: true,
+  usar_ocr_ia: true,
+  exportar_relatorios: true,
 };

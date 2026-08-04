@@ -1,0 +1,73 @@
+{
+  "collections": {
+    "supermercados": {
+      "description": "Lojas e supermercados cadastrados",
+      "fields": {
+        "nome": { "type": "string", "description": "Nome do supermercado", "required": true },
+        "cnpj": { "type": "string", "description": "CNPJ", "required": true },
+        "senha": { "type": "string", "description": "Senha de acesso", "required": true },
+        "dataCadastro": { "type": "string", "description": "Data de cadastro ISO", "required": false },
+        "permissoesLoja": { "type": "map", "description": "Permissões ativas na loja", "required": false }
+      }
+    },
+    "estoque": {
+      "description": "Itens no estoque das lojas",
+      "fields": {
+        "codigo": { "type": "string", "description": "Código interno ou EAN", "required": true },
+        "codigo_barras": { "type": "string", "description": "Código de barras", "required": false },
+        "nome": { "type": "string", "description": "Nome do produto", "required": true },
+        "quantidade": { "type": "number", "description": "Quantidade em estoque", "required": true },
+        "lote": { "type": "string", "description": "Lote", "required": false },
+        "validade": { "type": "string", "description": "Data de validade AAAA-MM-DD", "required": false },
+        "preco_custo": { "type": "number", "description": "Preço de custo", "required": false },
+        "preco_venda": { "type": "number", "description": "Preço de venda", "required": true },
+        "foto": { "type": "string", "description": "URL ou base64 da foto", "required": false },
+        "lojaId": { "type": "string", "description": "ID do supermercado associado", "required": true }
+      }
+    },
+    "produtos_catalogo": {
+      "description": "Catálogo global de código de barras e produtos",
+      "fields": {
+        "codigo": { "type": "string", "description": "Código EAN", "required": true },
+        "nome": { "type": "string", "description": "Nome do produto", "required": true },
+        "marca": { "type": "string", "description": "Marca", "required": false },
+        "categoria": { "type": "string", "description": "Categoria", "required": false },
+        "unidade_medida": { "type": "string", "description": "Unidade de medida", "required": false },
+        "imagem": { "type": "string", "description": "URL ou foto", "required": false },
+        "descricao": { "type": "string", "description": "Descrição detalhada", "required": false }
+      }
+    },
+    "vendas": {
+      "description": "Histórico de vendas e faturamento",
+      "fields": {
+        "lojaId": { "type": "string", "description": "ID do supermercado", "required": true },
+        "operadorId": { "type": "string", "description": "ID do operador", "required": false },
+        "operadorNome": { "type": "string", "description": "Nome do operador", "required": true },
+        "data": { "type": "string", "description": "Data da venda AAAA-MM-DD", "required": true },
+        "hora": { "type": "string", "description": "Hora da venda HH:MM", "required": true },
+        "timestamp": { "type": "number", "description": "Timestamp epoch ms", "required": true },
+        "valorTotal": { "type": "number", "description": "Valor total R$", "required": true },
+        "desconto": { "type": "number", "description": "Desconto R$", "required": false },
+        "valorPago": { "type": "number", "description": "Valor recebido R$", "required": false },
+        "troco": { "type": "number", "description": "Troco R$", "required": false },
+        "formaPagamento": { "type": "string", "description": "Forma de pagamento", "required": true },
+        "status": { "type": "string", "description": "concluida ou estornada", "required": true },
+        "motivoEstorno": { "type": "string", "description": "Motivo do estorno se houver", "required": false },
+        "itens": { "type": "array", "description": "Lista de itens vendidos", "required": true }
+      }
+    },
+    "operadores": {
+      "description": "Operadores de caixa e equipe",
+      "fields": {
+        "lojaId": { "type": "string", "description": "ID do supermercado", "required": true },
+        "nome": { "type": "string", "description": "Nome do operador", "required": true },
+        "cargo": { "type": "string", "description": "Cargo", "required": true },
+        "cpfOuUsuario": { "type": "string", "description": "CPF ou usuário", "required": true },
+        "pinSenha": { "type": "string", "description": "PIN/Senha", "required": true },
+        "permissoes": { "type": "map", "description": "Permissões específicas", "required": true },
+        "ativo": { "type": "boolean", "description": "Status ativo/inativo", "required": true },
+        "dataCadastro": { "type": "string", "description": "Data de cadastro", "required": false }
+      }
+    }
+  }
+}

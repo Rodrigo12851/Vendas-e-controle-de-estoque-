@@ -1,107 +1,33 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { BrowserMultiFormatReader } from '@zxing/library';
-import { Venda, VendaItem } from './types';
+import {
+  Venda,
+  VendaItem,
+  ProdutoCatalogo,
+  ItemEstoque,
+  PermissoesLoja,
+  PermissoesOperador,
+  OperadorCaixa,
+  Supermercado,
+  PERMISSOES_LOJA_PADRAO,
+  PERMISSOES_CAIXA_PADRAO,
+  PERMISSOES_ADMIN_PADRAO,
+} from './types';
 import { RelatorioVendasModal } from './components/RelatorioVendasModal';
 import { GraficosVendasModal } from './components/GraficosVendasModal';
-
-// Shared types matching the user specification
-interface ProdutoCatalogo {
-  codigo: string;
-  nome: string;
-  marca?: string;
-  categoria?: string;
-  unidade_medida?: string;
-  imagem?: string;
-  descricao?: string;
-}
-
-interface ItemEstoque {
-  codigo_barras?: string;
-  codigo: string;
-  nome: string;
-  quantidade: number;
-  lote: string;
-  validade: string;
-  preco_custo?: number;
-  preco_venda: number;
-  foto?: string;
-}
-
-export interface PermissoesLoja {
-  caixa: boolean;             // 🛒 PDV & Registro de Vendas
-  estoque: boolean;           // 📦 Cadastro & Gestão de Estoque
-  usuarios: boolean;          // 👥 Gestão de Operadores de Caixa & Equipe
-  relatorios: boolean;        // 📊 Relatórios Financeiros & Vendas
-  ocr_ia: boolean;            // 🤖 Consulta Inteligente OCR / IA
-  etiquetas: boolean;         // 🏷️ Impressão de Etiquetas
-  alertas: boolean;           // 🔔 Alertas de Validade
-  baixa_estoque: boolean;     // 🗑️ Baixa Manual & Ajuste de Estoque
-}
-
-export interface PermissoesOperador {
-  vender: boolean;             // 🛒 Realizar Vendas no Caixa
-  dar_desconto: boolean;       // 💲 Conceder Desconto
-  alterar_preco: boolean;      // ✏️ Alterar Preço Unitário de Venda
-  cadastrar_produtos: boolean; // 📦 Cadastrar/Editar Produtos
-  baixa_estoque: boolean;      // 🗑️ Dar Baixa Manual em Estoque
-  ver_relatorios: boolean;     // 📊 Ver Faturamento & Relatórios
-  gerenciar_equipe: boolean;   // 👥 Gerenciar Outros Funcionários
-  imprimir_etiquetas: boolean; // 🏷️ Imprimir Etiquetas
-}
-
-export interface OperadorCaixa {
-  id: string;
-  lojaId: string;
-  nome: string;
-  cargo: 'Operador de Caixa' | 'Supervisor' | 'Administrador';
-  cpfOuUsuario: string;
-  pinSenha: string;
-  permissoes: PermissoesOperador;
-  ativo: boolean;
-  dataCadastro?: string;
-}
-
-interface Supermercado {
-  id: string;
-  nome: string;
-  cnpj: string;
-  senha: string;
-  dataCadastro?: string;
-  permissoesLoja?: PermissoesLoja;
-}
-
-export const PERMISSOES_LOJA_PADRAO: PermissoesLoja = {
-  caixa: true,
-  estoque: true,
-  usuarios: true,
-  relatorios: true,
-  ocr_ia: true,
-  etiquetas: true,
-  alertas: true,
-  baixa_estoque: true,
-};
-
-export const PERMISSOES_CAIXA_PADRAO: PermissoesOperador = {
-  vender: true,
-  dar_desconto: false,
-  alterar_preco: false,
-  cadastrar_produtos: false,
-  baixa_estoque: false,
-  ver_relatorios: false,
-  gerenciar_equipe: false,
-  imprimir_etiquetas: true,
-};
-
-export const PERMISSOES_ADMIN_PADRAO: PermissoesOperador = {
-  vender: true,
-  dar_desconto: true,
-  alterar_preco: true,
-  cadastrar_produtos: true,
-  baixa_estoque: true,
-  ver_relatorios: true,
-  gerenciar_equipe: true,
-  imprimir_etiquetas: true,
-};
+import {
+  subscribeSupermercados,
+  subscribeEstoque,
+  subscribeCatalogo,
+  subscribeVendas,
+  subscribeOperadores,
+  salvarSupermercadoFirestore,
+  salvarItemEstoqueFirestore,
+  salvarProdutoCatalogoFirestore,
+  salvarVendaFirestore,
+  salvarOperadorFirestore,
+  inicializarDadosIniciaisFirestore,
+} from './lib/firestoreSync';
 
 const LISTA_CATEGORIAS = [
   'Mercearia / Grãos & Cereais',
@@ -384,6 +310,57 @@ export default function App() {
     return vendasIniciais;
   });
 
+  // Firebase Firestore Real-time Cloud Database Sync & Initial Seeding
+  useEffect(() => {
+    // Seed default data if empty in Firestore
+    inicializarDadosIniciaisFirestore(listaSupermercados, catalogoGlobal, listaOperadores, vendas);
+
+    // Subscribe to Supermercados
+    const unsubLojas = subscribeSupermercados((lojas) => {
+      setListaSupermercados(lojas);
+      localStorage.setItem('lista_supermercados_app', JSON.stringify(lojas));
+    });
+
+    // Subscribe to Catálogo Global
+    const unsubCat = subscribeCatalogo((prods) => {
+      setCatalogoGlobal(prods);
+      localStorage.setItem('catalogoGlobalFirebase', JSON.stringify(prods));
+    });
+
+    return () => {
+      unsubLojas();
+      unsubCat();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!supermercadoAtual) return;
+
+    // Subscribe to Estoque for active store
+    const unsubEstoque = subscribeEstoque(supermercadoAtual, (itens) => {
+      setEstoque(itens);
+      localStorage.setItem(`estoque_${supermercadoAtual}`, JSON.stringify(itens));
+    });
+
+    // Subscribe to Vendas for active store
+    const unsubVendas = subscribeVendas(supermercadoAtual, (listaVendas) => {
+      setVendas(listaVendas);
+      localStorage.setItem(`vendas_${supermercadoAtual}`, JSON.stringify(listaVendas));
+    });
+
+    // Subscribe to Operadores for active store
+    const unsubOperadores = subscribeOperadores(supermercadoAtual, (ops) => {
+      setListaOperadores(ops);
+      localStorage.setItem(`operadores_caixa_${supermercadoAtual}`, JSON.stringify(ops));
+    });
+
+    return () => {
+      unsubEstoque();
+      unsubVendas();
+      unsubOperadores();
+    };
+  }, [supermercadoAtual]);
+
   // BroadcastChannel for Real-time Cross-Tab / Cross-Device Sync
   useEffect(() => {
     let syncChannel: BroadcastChannel | null = null;
@@ -491,10 +468,14 @@ export default function App() {
       estoque: status,
       usuarios: status,
       relatorios: status,
+      estorno: status,
+      graficos: status,
+      inteligencia_estoque: status,
       ocr_ia: status,
       etiquetas: status,
       alertas: status,
       baixa_estoque: status,
+      exportar_dados: status,
     });
   };
 
@@ -529,6 +510,7 @@ export default function App() {
     setListaSupermercados(novaLista);
     localStorage.setItem('lista_supermercados_app', JSON.stringify(novaLista));
     localStorage.setItem(`config_supermercado_${idLoja}`, JSON.stringify(dadosLoja));
+    salvarSupermercadoFirestore(dadosLoja);
 
     setSupermercadoAtual(idLoja);
     setNomeSupermercadoAtivo(nome);
@@ -637,6 +619,7 @@ export default function App() {
 
     setListaOperadores(novaLista);
     localStorage.setItem(`operadores_caixa_${supermercadoAtual}`, JSON.stringify(novaLista));
+    salvarOperadorFirestore(novoOp);
 
     setMsgRegOp(<span style={{ color: 'var(--sucesso)' }}>✅ Funcionário / Operador salvo com sucesso!</span>);
     setOpEditandoId(null);
@@ -662,14 +645,17 @@ export default function App() {
   };
 
   const alternarStatusOperador = (idOp: string) => {
+    let opAtualizado: OperadorCaixa | null = null;
     const novaLista = listaOperadores.map((op) => {
       if (op.id === idOp) {
-        return { ...op, ativo: !op.ativo };
+        opAtualizado = { ...op, ativo: !op.ativo };
+        return opAtualizado;
       }
       return op;
     });
     setListaOperadores(novaLista);
     localStorage.setItem(`operadores_caixa_${supermercadoAtual}`, JSON.stringify(novaLista));
+    if (opAtualizado) salvarOperadorFirestore(opAtualizado);
   };
 
   const excluirOperador = (idOp: string) => {
@@ -1331,6 +1317,7 @@ export default function App() {
     }
     setCatalogoGlobal(novoCatalogo);
     localStorage.setItem('catalogoGlobalFirebase', JSON.stringify(novoCatalogo));
+    salvarProdutoCatalogoFirestore(dadosGlobal);
 
     // Update Store Inventory
     let novoEstoque = [...estoque];
@@ -1368,8 +1355,21 @@ export default function App() {
       });
     }
 
+    const itemSalvar: ItemEstoque = {
+      codigo_barras: codigoDigitado,
+      codigo: codigoDigitado,
+      nome: nomeDigitado,
+      quantidade: indexExistente !== -1 && !codigoEditando ? novoEstoque[indexExistente].quantidade : qtdDigitada,
+      lote: loteDigitado,
+      validade: valDigitada,
+      preco_custo: custoDigitado,
+      preco_venda: precoDigitado,
+      foto: fotoTemp,
+    };
+
     setEstoque(novoEstoque);
     localStorage.setItem(`estoque_${supermercadoAtual}`, JSON.stringify(novoEstoque));
+    salvarItemEstoqueFirestore(itemSalvar, supermercadoAtual);
     setMsgCad(<span style={{ color: 'var(--sucesso)' }}>✅ Salvo com sucesso!</span>);
     notificarSincronizacao();
 
@@ -1450,9 +1450,13 @@ export default function App() {
     const novasVendas = [novaVenda, ...vendas];
     setVendas(novasVendas);
     localStorage.setItem(`vendas_${supermercadoAtual}`, JSON.stringify(novasVendas));
+    salvarVendaFirestore(novaVenda);
 
     setEstoque(novoEstoque);
     localStorage.setItem(`estoque_${supermercadoAtual}`, JSON.stringify(novoEstoque));
+    if (index !== -1 && novoEstoque[index]) {
+      salvarItemEstoqueFirestore(novoEstoque[index], supermercadoAtual);
+    }
     setMsgVenda(
       <span style={{ color: 'var(--sucesso)' }}>
         ✅ Venda/Baixa realizada com sucesso! Restam {index !== -1 ? Math.max(0, novoEstoque[index]?.quantidade || 0) : 0} un.
@@ -1519,6 +1523,16 @@ export default function App() {
 
     setVendas(novasVendas);
     localStorage.setItem(`vendas_${supermercadoAtual}`, JSON.stringify(novasVendas));
+
+    salvarVendaFirestore(novasVendas[vendaIndex]);
+    venda.itens.forEach((itemVenda) => {
+      const idxEst = novoEstoque.findIndex(
+        (p) => p.codigo === itemVenda.codigo && p.lote === itemVenda.lote && p.validade === itemVenda.validade
+      );
+      if (idxEst !== -1) {
+        salvarItemEstoqueFirestore(novoEstoque[idxEst], supermercadoAtual);
+      }
+    });
 
     notificarSincronizacao();
   };
@@ -1650,10 +1664,10 @@ export default function App() {
         </div>
       </header>
 
-      {/* SELETOR DE PERFIL E SESSÃO ATIVA */}
+      {/* SELETOR DE PERFIL E SESSÃO */}
       <div className="seletor-perfil-bar">
         <div className="perfil-tag-ativo">
-          <span>👤 Perfil/Sessão Ativa:</span>
+          <span>👤 Perfil:</span>
           <select
             className="select-perfil-header"
             value={perfilAtivo === 'caixa' ? `caixa_${operadorAtivoId || ''}` : perfilAtivo}
@@ -2136,14 +2150,18 @@ export default function App() {
 
               <div className="grid-permissoes">
                 {[
-                  { key: 'caixa', icon: '🛒', title: 'PDV / Caixa', desc: 'Permite realizar vendas e registrar saídas' },
-                  { key: 'estoque', icon: '📦', title: 'Gestão de Estoque', desc: 'Permite cadastrar produtos, preços e lotes' },
-                  { key: 'usuarios', icon: '👥', title: 'Gestão de Caixas', desc: 'Permite ao supermercado cadastrar operadores' },
-                  { key: 'relatorios', icon: '📊', title: 'Relatórios Financeiros', desc: 'Acesso a faturamento e curva de vendas' },
-                  { key: 'ocr_ia', icon: '🤖', title: 'OCR / IA Validades', desc: 'Leitura de rótulos por câmera e IA' },
-                  { key: 'etiquetas', icon: '🏷️', title: 'Etiquetas & Barras', desc: 'Geração e impressão de etiquetas térmicas' },
-                  { key: 'alertas', icon: '🔔', title: 'Alertas Validade', desc: 'Notificação automática de itens vencendo' },
-                  { key: 'baixa_estoque', icon: '🗑️', title: 'Baixa de Estoque', desc: 'Ajuste manual de perdas/descarte de estoque' },
+                  { key: 'caixa', icon: '🛒', title: 'PDV / Caixa', desc: 'Permite realizar vendas e registrar saídas no caixa' },
+                  { key: 'estoque', icon: '📦', title: 'Gestão de Estoque', desc: 'Permite cadastrar produtos, preços, marcas e lotes' },
+                  { key: 'usuarios', icon: '👥', title: 'Gestão de Equipe', desc: 'Permite cadastrar e gerenciar operadores de caixa' },
+                  { key: 'relatorios', icon: '📊', title: 'Relatórios de Vendas', desc: 'Acesso ao histórico de vendas e faturamento' },
+                  { key: 'estorno', icon: '↩️', title: 'Estorno & Cancelamento', desc: 'Permite estornar vendas realizadas e devolver ao estoque' },
+                  { key: 'graficos', icon: '📈', title: 'Gráficos & Analytics', desc: 'Acesso aos gráficos e curva de faturamento' },
+                  { key: 'inteligencia_estoque', icon: '💡', title: 'Inteligência de Estoque', desc: 'Sugestões de reposição, giro de caixa e perdas' },
+                  { key: 'ocr_ia', icon: '🤖', title: 'Consulta OCR / IA', desc: 'Leitura de rótulos com câmera e inteligência artificial' },
+                  { key: 'etiquetas', icon: '🏷️', title: 'Impressão de Etiquetas', desc: 'Geração e impressão de etiquetas térmicas com barras' },
+                  { key: 'alertas', icon: '🔔', title: 'Alertas de Validade', desc: 'Notificação automática de produtos a vencer' },
+                  { key: 'baixa_estoque', icon: '🗑️', title: 'Baixa & Descarte', desc: 'Ajuste manual e descarte por perda ou avaria' },
+                  { key: 'exportar_dados', icon: '📥', title: 'Exportação de Dados', desc: 'Download de relatórios em Excel, CSV e PDF' },
                 ].map((item) => {
                   const marcado = regLojaPermissoes[item.key as keyof PermissoesLoja];
                   return (
@@ -2172,7 +2190,7 @@ export default function App() {
 
             <div className="grupo-botoes" style={{ marginTop: '14px' }}>
               <button className="btn btn-salvar" onClick={salvarNovoSupermercado}>
-                {lojaEditandoId ? 'Atualizar Dados e Senha' : 'Salvar e Ativar Supermercado'}
+                {lojaEditandoId ? 'Atualizar Dados e Senha' : 'Salvar Supermercado'}
               </button>
               {lojaEditandoId && (
                 <button
@@ -2269,7 +2287,7 @@ export default function App() {
                                 fontWeight: 600,
                               }}
                             >
-                              Loja Ativa
+                              Loja Selecionada
                             </span>
                           )}
                         </div>
@@ -2448,14 +2466,20 @@ export default function App() {
             {/* QUADRADOS DE PERMISSÃO DO OPERADOR */}
             <div className="grid-permissoes">
               {[
-                { key: 'vender', icon: '🛒', title: 'Realizar Vendas', desc: 'Registrar saídas no caixa do PDV' },
-                { key: 'dar_desconto', icon: '💲', title: 'Dar Desconto', desc: 'Aplicar desconto no valor final' },
-                { key: 'alterar_preco', icon: '✏️', title: 'Alterar Preço', desc: 'Mudar valor unitário no produto' },
-                { key: 'cadastrar_produtos', icon: '📦', title: 'Cadastrar Produtos', desc: 'Criar ou editar itens no estoque' },
-                { key: 'baixa_estoque', icon: '🗑️', title: 'Baixa Manual', desc: 'Remover itens por perda ou descarte' },
-                { key: 'ver_relatorios', icon: '📊', title: 'Faturamento', desc: 'Ver relatórios e relatórios de vendas' },
-                { key: 'gerenciar_equipe', icon: '👥', title: 'Gerenciar Caixas', desc: 'Cadastrar outros funcionários' },
-                { key: 'imprimir_etiquetas', icon: '🏷️', title: 'Imprimir Etiquetas', desc: 'Etiquetas térmicas e código de barras' },
+                { key: 'vender', icon: '🛒', title: 'Realizar Vendas', desc: 'Registrar saídas no caixa do PDV e finalizar compras' },
+                { key: 'dar_desconto', icon: '💲', title: 'Dar Desconto', desc: 'Aplicar desconto no valor total da venda' },
+                { key: 'alterar_preco', icon: '✏️', title: 'Alterar Preço', desc: 'Mudar o valor unitário de venda do produto' },
+                { key: 'estornar_venda', icon: '↩️', title: 'Estornar / Cancelar Venda', desc: 'Cancelar venda e retornar itens ao estoque' },
+                { key: 'cadastrar_produtos', icon: '📦', title: 'Cadastrar Produtos', desc: 'Criar ou editar produtos e lotes no estoque' },
+                { key: 'excluir_produtos', icon: '❌', title: 'Excluir Produtos', desc: 'Remover produtos do cadastro e estoque da loja' },
+                { key: 'baixa_estoque', icon: '🗑️', title: 'Baixa Manual', desc: 'Dar baixa em estoque por perda, quebra ou vencimento' },
+                { key: 'ver_relatorios', icon: '📊', title: 'Ver Faturamento', desc: 'Visualizar relatórios e histórico de vendas' },
+                { key: 'ver_graficos', icon: '📈', title: 'Ver Gráficos', desc: 'Acessar gráficos de desempenho de vendas' },
+                { key: 'inteligencia_estoque', icon: '💡', title: 'Inteligência de Compras', desc: 'Ver recomendações de reposição e itens parados' },
+                { key: 'gerenciar_equipe', icon: '👥', title: 'Gerenciar Caixas', desc: 'Cadastrar e editar outros funcionários' },
+                { key: 'imprimir_etiquetas', icon: '🏷️', title: 'Imprimir Etiquetas', desc: 'Gerar e imprimir etiquetas térmicas e códigos' },
+                { key: 'usar_ocr_ia', icon: '🤖', title: 'Usar Leitor OCR/IA', desc: 'Scanner com inteligência artificial para ler embalagens' },
+                { key: 'exportar_relatorios', icon: '📥', title: 'Exportar Relatórios', desc: 'Baixar arquivos de vendas em CSV/PDF' },
               ].map((item) => {
                 const marcado = regOpPermissoes[item.key as keyof PermissoesOperador];
                 return (
@@ -2565,10 +2589,17 @@ export default function App() {
                         {op.permissoes?.vender && <span style={{ fontSize: '0.68rem', background: '#e0f2fe', color: '#0369a1', padding: '1px 6px', borderRadius: '4px', fontWeight: 600 }}>🛒 Vendas</span>}
                         {op.permissoes?.dar_desconto && <span style={{ fontSize: '0.68rem', background: '#dcfce7', color: '#15803d', padding: '1px 6px', borderRadius: '4px', fontWeight: 600 }}>💲 Desconto</span>}
                         {op.permissoes?.alterar_preco && <span style={{ fontSize: '0.68rem', background: '#fef3c7', color: '#b45309', padding: '1px 6px', borderRadius: '4px', fontWeight: 600 }}>✏️ Alterar Preço</span>}
+                        {op.permissoes?.estornar_venda && <span style={{ fontSize: '0.68rem', background: '#fee2e2', color: '#991b1b', padding: '1px 6px', borderRadius: '4px', fontWeight: 600 }}>↩️ Estorno</span>}
                         {op.permissoes?.cadastrar_produtos && <span style={{ fontSize: '0.68rem', background: '#f3e8ff', color: '#6b21a8', padding: '1px 6px', borderRadius: '4px', fontWeight: 600 }}>📦 Cad. Produtos</span>}
+                        {op.permissoes?.excluir_produtos && <span style={{ fontSize: '0.68rem', background: '#ffedd5', color: '#9a3412', padding: '1px 6px', borderRadius: '4px', fontWeight: 600 }}>❌ Excluir Produtos</span>}
                         {op.permissoes?.baixa_estoque && <span style={{ fontSize: '0.68rem', background: '#fee2e2', color: '#b91c1c', padding: '1px 6px', borderRadius: '4px', fontWeight: 600 }}>🗑️ Baixa Manual</span>}
                         {op.permissoes?.ver_relatorios && <span style={{ fontSize: '0.68rem', background: '#e0e7ff', color: '#3730a3', padding: '1px 6px', borderRadius: '4px', fontWeight: 600 }}>📊 Relatórios</span>}
+                        {op.permissoes?.ver_graficos && <span style={{ fontSize: '0.68rem', background: '#ccfbf1', color: '#0f766e', padding: '1px 6px', borderRadius: '4px', fontWeight: 600 }}>📈 Gráficos</span>}
+                        {op.permissoes?.inteligencia_estoque && <span style={{ fontSize: '0.68rem', background: '#fef9c3', color: '#854d0e', padding: '1px 6px', borderRadius: '4px', fontWeight: 600 }}>💡 Inteligência</span>}
                         {op.permissoes?.gerenciar_equipe && <span style={{ fontSize: '0.68rem', background: '#fae8ff', color: '#86198f', padding: '1px 6px', borderRadius: '4px', fontWeight: 600 }}>👥 Gerir Equipe</span>}
+                        {op.permissoes?.imprimir_etiquetas && <span style={{ fontSize: '0.68rem', background: '#f1f5f9', color: '#334155', padding: '1px 6px', borderRadius: '4px', fontWeight: 600 }}>🏷️ Etiquetas</span>}
+                        {op.permissoes?.usar_ocr_ia && <span style={{ fontSize: '0.68rem', background: '#e0f2fe', color: '#0284c7', padding: '1px 6px', borderRadius: '4px', fontWeight: 600 }}>🤖 OCR / IA</span>}
+                        {op.permissoes?.exportar_relatorios && <span style={{ fontSize: '0.68rem', background: '#ecfdf5', color: '#047857', padding: '1px 6px', borderRadius: '4px', fontWeight: 600 }}>📥 Exportar</span>}
                       </div>
                     </div>
 
