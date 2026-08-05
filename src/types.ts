@@ -127,7 +127,6 @@ export interface SessaoCaixaTurno {
   operadorNome: string;
   dataAbertura: string;
   horaAbertura: string;
-  timestampAbertura?: number;
   status: 'aberto' | 'fechado';
   valorInicialSuprimento: number;
   dataFechamento?: string;

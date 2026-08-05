@@ -262,7 +262,7 @@ export default function App() {
     try {
       const storeId = localStorage.getItem('supermercadoAtualId') || 'loja_matriz_01';
       const opId = localStorage.getItem('operadorAtivoId') || 'op_padrao';
-      const salvo = localStorage.getItem(`sessao_caixa_${storeId}`) || localStorage.getItem(`sessao_caixa_${storeId}_${opId}`);
+      const salvo = localStorage.getItem(`sessao_caixa_${storeId}_${opId}`);
       return salvo ? JSON.parse(salvo) : null;
     } catch {
       return null;
@@ -521,19 +521,19 @@ export default function App() {
       return { valido: true, operador: opEncontrado };
     }
 
-    // 2. Verificar credenciais administrativas master do supermercado ou dona do app
+    // 2. Verificar credenciais administrativas master do supermercado
     const lojaAtual = listaSupermercados.find((l) => l.id === supermercadoAtual);
-    const eAdminLoja = (loginLimpo === 'admin' || loginLimpo === 'dona_app' || loginLimpo === 'supervisor' || loginLimpo === (lojaAtual?.nome.toLowerCase() || '')) &&
-                       (senhaLimpa === '123' || senhaLimpa === '1234' || senhaLimpa === 'admin' || senhaLimpa === lojaAtual?.senha);
+    const eAdminLoja = (loginLimpo === 'admin' || loginLimpo === 'supervisor' || loginLimpo === (lojaAtual?.nome.toLowerCase() || '')) &&
+                       (senhaLimpa === '123' || senhaLimpa === '1234' || senhaLimpa === lojaAtual?.senhaAdmin);
 
-    if (eAdminLoja || perfilAtivo === 'dona_app' || perfilAtivo === 'admin_loja') {
+    if (eAdminLoja) {
       const opAdmin: OperadorCaixa = {
         id: 'op_admin_' + Date.now(),
         lojaId: supermercadoAtual,
-        nome: perfilAtivo === 'dona_app' ? 'Dona do Aplicativo' : 'Administrador da Loja',
+        nome: 'Administrador da Loja',
         cargo: 'Administrador',
-        cpfOuUsuario: loginLimpo || 'admin',
-        pinSenha: senhaLimpa || '123',
+        cpfOuUsuario: loginLimpo,
+        pinSenha: senhaLimpa,
         permissoes: PERMISSOES_ADMIN_PADRAO,
         ativo: true,
         dataCadastro: new Date().toLocaleDateString('pt-BR'),
@@ -564,13 +564,11 @@ export default function App() {
       operadorNome: opAtivo.nome,
       dataAbertura: agora.toLocaleDateString('pt-BR'),
       horaAbertura: agora.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
-      timestampAbertura: agora.getTime(),
       status: 'aberto',
       valorInicialSuprimento: valorInicial,
     };
 
     setSessaoCaixaAtiva(novaSessao);
-    localStorage.setItem(`sessao_caixa_${supermercadoAtual}`, JSON.stringify(novaSessao));
     localStorage.setItem(`sessao_caixa_${supermercadoAtual}_${opAtivo.id}`, JSON.stringify(novaSessao));
     registrarLogAuditoria('Abertura de Caixa', `Caixa ABERTO por ${opAtivo.nome} (${opAtivo.cargo}) com troco inicial de R$ ${valorInicial.toFixed(2)}`);
     
@@ -637,9 +635,8 @@ export default function App() {
       .filter((m) => m.sessaoId === sessaoCaixaAtiva.id && m.tipo === 'sangria')
       .reduce((a, b) => a + b.valor, 0);
 
-    const tAbertura = sessaoCaixaAtiva.timestampAbertura || 0;
     const vendasDinheiroSessao = vendas
-      .filter((v) => v.status === 'concluida' && v.formaPagamento === 'dinheiro' && (tAbertura === 0 || v.timestamp >= tAbertura))
+      .filter((v) => v.status === 'concluida' && v.formaPagamento === 'dinheiro')
       .reduce((a, b) => a + b.valorTotal, 0);
 
     const dinheiroEsperado = sessaoCaixaAtiva.valorInicialSuprimento + suprimentosSessao + vendasDinheiroSessao - sangriasSessao;
@@ -659,14 +656,13 @@ export default function App() {
     };
 
     setSessaoCaixaAtiva(sessaoFechada);
-    localStorage.setItem(`sessao_caixa_${supermercadoAtual}`, JSON.stringify(sessaoFechada));
     localStorage.setItem(`sessao_caixa_${supermercadoAtual}_${operadorAtivoId || 'op_padrao'}`, JSON.stringify(sessaoFechada));
 
     const statusDiff = diferencaDinheiro === 0 ? 'SEM DIFERENÇA' : diferencaDinheiro > 0 ? `SOBRA DE R$ ${diferencaDinheiro.toFixed(2)}` : `FALTA DE R$ ${Math.abs(diferencaDinheiro).toFixed(2)}`;
 
     registrarLogAuditoria(
       'Fechamento de Caixa',
-      `Fechamento autorizado por ${validacao.operador.nome}. Esperado Dinheiro: R$ ${dinheiroEsperado.toFixed(2)}, Informado: R$ ${dinheiroInformado.toFixed(2)} (${statusDiff})`
+      `Fechamento autorizadop por ${validacao.operador.nome}. Esperado Dinheiro: R$ ${dinheiroEsperado.toFixed(2)}, Informado: R$ ${dinheiroInformado.toFixed(2)} (${statusDiff})`
     );
 
     tocarSomSucessoVenda();
@@ -1065,9 +1061,9 @@ export default function App() {
 
     // 2. Check Store Permissions (configured by Dona do App)
     const lojaAtualConfig = listaSupermercados.find((l) => l.id === supermercadoAtual);
-    const permLoja = { ...PERMISSOES_LOJA_PADRAO, ...(lojaAtualConfig?.permissoesLoja || {}) };
+    const permLoja = lojaAtualConfig?.permissoesLoja || PERMISSOES_LOJA_PADRAO;
 
-    if (permLoja[tipoModuloLoja] === false) {
+    if (!permLoja[tipoModuloLoja]) {
       setAvisoRestrito(
         `🔒 Acesso Bloqueado pela Dona do Aplicativo: O módulo "${nomeAcaoFormatado || tipoModuloLoja}" está desabilitado para o supermercado "${nomeSupermercadoAtivo}".`
       );
@@ -1084,8 +1080,8 @@ export default function App() {
         setAvisoRestrito('🔒 Operador inativo ou não selecionado. Faça login com uma conta válida.');
         return false;
       }
-      const permOp = { ...PERMISSOES_CAIXA_PADRAO, ...(opAtual.permissoes || {}) };
-      if (permOp[acaoOperador] === false) {
+      const permOp = opAtual.permissoes || PERMISSOES_CAIXA_PADRAO;
+      if (!permOp[acaoOperador]) {
         setAvisoRestrito(
           `🔒 Acesso Restrito ao Operador: O funcionário "${opAtual.nome}" (${opAtual.cargo}) não tem permissão de "${nomeAcaoFormatado || acaoOperador}". Peça autorização ao Administrador do Supermercado.`
         );
@@ -2657,14 +2653,12 @@ export default function App() {
             <button
               type="button"
               style={{
-                padding: '10px 16px',
-                minHeight: '44px',
+                padding: '10px 18px',
                 borderRadius: '8px',
                 fontWeight: 700,
-                fontSize: '0.88rem',
+                fontSize: '0.9rem',
                 cursor: 'pointer',
                 border: 'none',
-                flex: '1 1 auto',
                 background: abaDonaApp === 'supermercados' ? 'var(--primario)' : '#f1f5f9',
                 color: abaDonaApp === 'supermercados' ? '#ffffff' : '#334155',
                 boxShadow: abaDonaApp === 'supermercados' ? '0 2px 4px rgba(0,0,0,0.1)' : 'none',
@@ -2676,14 +2670,12 @@ export default function App() {
             <button
               type="button"
               style={{
-                padding: '10px 16px',
-                minHeight: '44px',
+                padding: '10px 18px',
                 borderRadius: '8px',
                 fontWeight: 700,
-                fontSize: '0.88rem',
+                fontSize: '0.9rem',
                 cursor: 'pointer',
                 border: 'none',
-                flex: '1 1 auto',
                 background: abaDonaApp === 'banco_dados' ? 'var(--primario)' : '#f1f5f9',
                 color: abaDonaApp === 'banco_dados' ? '#ffffff' : '#334155',
                 boxShadow: abaDonaApp === 'banco_dados' ? '0 2px 4px rgba(0,0,0,0.1)' : 'none',
@@ -3067,19 +3059,19 @@ export default function App() {
               </div>
 
               {/* FILTROS E BUSCA DO BANCO DE DADOS */}
-              <div style={{ background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: '10px', padding: '12px', display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' }}>
-                <div style={{ display: 'flex', gap: '8px', flex: '1 1 100%', flexWrap: 'wrap' }}>
+              <div style={{ background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: '10px', padding: '14px', display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', gap: '10px', flex: 1, minWidth: '280px', flexWrap: 'wrap' }}>
                   <input
                     type="text"
                     className="input-modal"
-                    style={{ marginBottom: 0, flex: '1 1 180px', width: '100%' }}
+                    style={{ marginBottom: 0, flex: 1, minWidth: '220px' }}
                     placeholder="🔍 Pesquisar no Banco de Dados (Nome, Código EAN, Lote...)"
                     value={buscaMasterBd}
                     onChange={(e) => setBuscaMasterBd(e.target.value)}
                   />
                   <select
                     className="input-modal"
-                    style={{ marginBottom: 0, flex: '1 1 140px', width: '100%' }}
+                    style={{ marginBottom: 0, width: 'auto', minWidth: '160px' }}
                     value={filtroMasterOrigem}
                     onChange={(e) => setFiltroMasterOrigem(e.target.value as any)}
                   >
@@ -3091,7 +3083,7 @@ export default function App() {
 
                 <button
                   className="btn-acao-rel"
-                  style={{ background: 'var(--primario)', color: '#fff', padding: '10px 16px', minHeight: '44px', fontWeight: 600, fontSize: '0.88rem', width: '100%' }}
+                  style={{ background: 'var(--primario)', color: '#fff', padding: '10px 16px', fontWeight: 600, fontSize: '0.88rem' }}
                   onClick={() => {
                     setModalSupermercadoVisivel(false);
                     abrirCadastro();
