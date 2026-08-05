@@ -2231,140 +2231,6 @@ export default function App() {
 
       {/* MAIN CONTENT */}
       <main className="espaco-topo">
-        {/* PAINEL RESUMO KPI DA LOJA E ATALHOS DESKTOP */}
-        <div className="dashboard-kpi-bar">
-          <div className="grid-kpi-cards">
-            <div className="card-kpi">
-              <div className="icone-kpi">🏪</div>
-              <div>
-                <div className="info-kpi-val" style={{ fontSize: '0.95rem' }}>{nomeSupermercadoAtivo}</div>
-                <div className="info-kpi-label">Loja Selecionada</div>
-              </div>
-            </div>
-
-            <div className="card-kpi">
-              <div className="icone-kpi">📦</div>
-              <div>
-                <div className="info-kpi-val">{listaAgrupada.length}</div>
-                <div className="info-kpi-label">Produtos Distintos</div>
-              </div>
-            </div>
-
-            <div className="card-kpi">
-              <div className="icone-kpi">📊</div>
-              <div>
-                <div className="info-kpi-val">
-                  {estoque.reduce((acc, item) => acc + (item.quantidade || 0), 0)} un
-                </div>
-                <div className="info-kpi-label">Total em Estoque</div>
-              </div>
-            </div>
-
-            <div className="card-kpi">
-              <div className="icone-kpi">💰</div>
-              <div>
-                <div className="info-kpi-val" style={{ color: '#16a34a' }}>
-                  R$ {estoque.reduce((acc, item) => acc + ((item.quantidade || 0) * (item.preco_venda || 0)), 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </div>
-                <div className="info-kpi-label">Valor Total Estoque</div>
-              </div>
-            </div>
-
-            <div className="card-kpi">
-              <div className="icone-kpi">💵</div>
-              <div>
-                <div className="info-kpi-val" style={{ fontSize: '0.9rem', color: sessaoCaixaAtiva && sessaoCaixaAtiva.status === 'aberto' ? '#16a34a' : '#dc2626' }}>
-                  {sessaoCaixaAtiva && sessaoCaixaAtiva.status === 'aberto' ? '🟢 Aberto' : '🔴 Fechado'}
-                </div>
-                <div className="info-kpi-label">Caixa PDV</div>
-              </div>
-            </div>
-          </div>
-
-          {/* BARRA DE ATALHOS RAPIDOS - COMPUTADOR / TABLET */}
-          <div className="atralhos-desktop">
-            <button
-              type="button"
-              className="btn-atalho-desktop sucesso"
-              onClick={() => {
-                if (verificarPermissaoOuAvisar('caixa', 'vender', 'Realizar Venda (PDV)')) {
-                  abrirLeitorGeral();
-                }
-              }}
-            >
-              <span>⚡</span> <span>Registrar Venda (PDV)</span>
-            </button>
-
-            <button
-              type="button"
-              className="btn-atalho-desktop primario"
-              onClick={() => {
-                if (verificarPermissaoOuAvisar('estoque', 'cadastrar_produtos', 'Cadastrar Produtos')) {
-                  abrirCadastro();
-                }
-              }}
-            >
-              <span>➕</span> <span>Novo Produto</span>
-            </button>
-
-            <button
-              type="button"
-              className="btn-atalho-desktop"
-              onClick={() => {
-                if (verificarPermissaoOuAvisar('relatorios', 'ver_relatorios', 'Relatório de Vendas')) {
-                  abrirRelatorioVendas();
-                }
-              }}
-            >
-              <span>🧾</span> <span>Relatório de Vendas</span>
-            </button>
-
-            <button
-              type="button"
-              className="btn-atalho-desktop"
-              onClick={() => {
-                if (verificarPermissaoOuAvisar('relatorios', 'ver_relatorios', 'Relatório de Estoque')) {
-                  abrirRelatorio();
-                }
-              }}
-            >
-              <span>📊</span> <span>Relatório de Estoque</span>
-            </button>
-
-            <button
-              type="button"
-              className="btn-atalho-desktop"
-              onClick={() => {
-                if (verificarPermissaoOuAvisar('gestao_caixa', 'gestao_caixa', 'Gestão de Caixa')) {
-                  setModalCaixaVisivel(true);
-                }
-              }}
-            >
-              <span>💵</span> <span>Caixa / Turno</span>
-            </button>
-
-            <button
-              type="button"
-              className="btn-atalho-desktop"
-              onClick={() => {
-                if (verificarPermissaoOuAvisar('etiquetas', 'imprimir_etiquetas', 'Imprimir Etiquetas')) {
-                  setModalEtiquetasVisivel(true);
-                }
-              }}
-            >
-              <span>🏷️</span> <span>Etiquetas</span>
-            </button>
-
-            <button
-              type="button"
-              className="btn-atalho-desktop"
-              onClick={abrirRelatorioCatalogo}
-            >
-              <span>🗂️</span> <span>Catálogo Global</span>
-            </button>
-          </div>
-        </div>
-
         <div className="painel-alertas" id="painel-alertas">
           {vencidosOuHoje.length > 0 && (
             <div className="alerta alerta-erro" onClick={abrirNotificacoes}>
@@ -2375,47 +2241,7 @@ export default function App() {
 
         <div className="grid-produtos" id="grid-produtos">
           {listaAgrupada.length === 0 ? (
-            <div className="card-vazio-interativo" style={{ gridColumn: '1 / -1' }}>
-              <div className="icone-vazio-grande">📦</div>
-              <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#0f172a', margin: 0 }}>
-                Estoque Vazio em {nomeSupermercadoAtivo}
-              </h3>
-              <p style={{ fontSize: '0.88rem', color: '#64748b', maxWidth: '460px', margin: 0, lineHeight: 1.4 }}>
-                Nenhum produto cadastrado no estoque desta loja no momento ou nenhum item encontrado para a pesquisa <b>"{busca}"</b>.
-              </p>
-              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', justifyContent: 'center', marginTop: '6px' }}>
-                <button
-                  type="button"
-                  className="btn"
-                  style={{ background: 'var(--sucesso)', color: '#fff', padding: '10px 18px', fontWeight: 700, fontSize: '0.88rem' }}
-                  onClick={() => {
-                    if (verificarPermissaoOuAvisar('estoque', 'cadastrar_produtos', 'Cadastrar Produtos')) {
-                      abrirCadastro();
-                    }
-                  }}
-                >
-                  ➕ Cadastrar Produto no Estoque
-                </button>
-                <button
-                  type="button"
-                  className="btn"
-                  style={{ background: 'var(--primario)', color: '#fff', padding: '10px 18px', fontWeight: 600, fontSize: '0.88rem' }}
-                  onClick={abrirRelatorioCatalogo}
-                >
-                  🗂️ Importar do Catálogo Global
-                </button>
-                {(listaSupermercados.length > 1 || perfilAtivo === 'dona_app') && (
-                  <button
-                    type="button"
-                    className="btn"
-                    style={{ background: '#f1f5f9', color: '#334155', border: '1px solid #cbd5e1', padding: '10px 18px', fontWeight: 600, fontSize: '0.88rem' }}
-                    onClick={abrirModalSupermercado}
-                  >
-                    🏢 Trocar de Loja
-                  </button>
-                )}
-              </div>
-            </div>
+            <div className="vazio">Nenhum produto cadastrado no estoque desta loja.</div>
           ) : (
             listaAgrupada.map((p) => {
               const primeiraValidade = p.lotes[0].validade;
@@ -2439,32 +2265,11 @@ export default function App() {
                       </div>
                       <div className="detalhe">Cód: {p.codigo}</div>
                     </div>
-                    <div style={{ marginTop: '6px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <div className="detalhe" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span>Estoque: <b>{p.qtdTotal} un</b></span>
-                        <span className="detalhe preco-destaque" style={{ color: '#16a34a', fontSize: '0.95rem' }}>R$ {p.preco_venda.toFixed(2)}</span>
+                    <div style={{ marginTop: '4px' }}>
+                      <div className="detalhe">
+                        Estoque Total: <b>{p.qtdTotal} un</b>
                       </div>
-                      <button
-                        type="button"
-                        style={{
-                          marginTop: '4px',
-                          background: 'var(--primario)',
-                          color: '#ffffff',
-                          border: 'none',
-                          borderRadius: '6px',
-                          padding: '6px 10px',
-                          fontWeight: 700,
-                          fontSize: '0.78rem',
-                          cursor: 'pointer',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          gap: '4px',
-                        }}
-                        onClick={() => abrirVenda(p.codigo, primeiraValidade, primeiroLote)}
-                      >
-                        ⚡ Selecionar / Vender
-                      </button>
+                      <div className="detalhe preco-destaque">R$ {p.preco_venda.toFixed(2)}</div>
                     </div>
                   </div>
                 </div>
@@ -2473,70 +2278,6 @@ export default function App() {
           )}
         </div>
       </main>
-
-      {/* BARRA DE NAVEGAÇÃO FIXA MOBILE (RÁPIDA DEDICADA PARA CELULAR) */}
-      <nav className="barra-navegacao-bottom-mobile">
-        <button
-          type="button"
-          className="item-nav-mobile destaque-venda"
-          onClick={() => {
-            if (verificarPermissaoOuAvisar('caixa', 'vender', 'Realizar Venda (PDV)')) {
-              abrirLeitorGeral();
-            }
-          }}
-        >
-          <span className="icone-nav-mobile">⚡</span>
-          <span>PDV Vender</span>
-        </button>
-
-        <button
-          type="button"
-          className="item-nav-mobile"
-          onClick={() => {
-            if (verificarPermissaoOuAvisar('estoque', 'cadastrar_produtos', 'Cadastrar Produtos')) {
-              abrirCadastro();
-            }
-          }}
-        >
-          <span className="icone-nav-mobile">➕</span>
-          <span>Cadastrar</span>
-        </button>
-
-        <button
-          type="button"
-          className="item-nav-mobile"
-          onClick={() => {
-            if (verificarPermissaoOuAvisar('relatorios', 'ver_relatorios', 'Relatório de Vendas')) {
-              abrirRelatorioVendas();
-            }
-          }}
-        >
-          <span className="icone-nav-mobile">🧾</span>
-          <span>Vendas</span>
-        </button>
-
-        <button
-          type="button"
-          className="item-nav-mobile"
-          onClick={() => {
-            if (verificarPermissaoOuAvisar('gestao_caixa', 'gestao_caixa', 'Gestão de Caixa')) {
-              setModalCaixaVisivel(true);
-            }
-          }}
-        >
-          <span className="icone-nav-mobile">💵</span>
-          <span>Caixa</span>
-        </button>
-
-        <button
-          type="button"
-          className="item-nav-mobile"
-          onClick={abrirMenu}
-        >
-          <span className="icone-nav-mobile">☰</span>
-          <span>Menu</span>
-        </button>
-      </nav>
 
       {/* FULL REPORT SCREEN */}
       <div
@@ -2912,12 +2653,14 @@ export default function App() {
             <button
               type="button"
               style={{
-                padding: '10px 18px',
+                padding: '10px 16px',
+                minHeight: '44px',
                 borderRadius: '8px',
                 fontWeight: 700,
-                fontSize: '0.9rem',
+                fontSize: '0.88rem',
                 cursor: 'pointer',
                 border: 'none',
+                flex: '1 1 auto',
                 background: abaDonaApp === 'supermercados' ? 'var(--primario)' : '#f1f5f9',
                 color: abaDonaApp === 'supermercados' ? '#ffffff' : '#334155',
                 boxShadow: abaDonaApp === 'supermercados' ? '0 2px 4px rgba(0,0,0,0.1)' : 'none',
@@ -2929,12 +2672,14 @@ export default function App() {
             <button
               type="button"
               style={{
-                padding: '10px 18px',
+                padding: '10px 16px',
+                minHeight: '44px',
                 borderRadius: '8px',
                 fontWeight: 700,
-                fontSize: '0.9rem',
+                fontSize: '0.88rem',
                 cursor: 'pointer',
                 border: 'none',
+                flex: '1 1 auto',
                 background: abaDonaApp === 'banco_dados' ? 'var(--primario)' : '#f1f5f9',
                 color: abaDonaApp === 'banco_dados' ? '#ffffff' : '#334155',
                 boxShadow: abaDonaApp === 'banco_dados' ? '0 2px 4px rgba(0,0,0,0.1)' : 'none',
@@ -3318,19 +3063,19 @@ export default function App() {
               </div>
 
               {/* FILTROS E BUSCA DO BANCO DE DADOS */}
-              <div style={{ background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: '10px', padding: '14px', display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' }}>
-                <div style={{ display: 'flex', gap: '10px', flex: 1, minWidth: '280px', flexWrap: 'wrap' }}>
+              <div style={{ background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: '10px', padding: '12px', display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', gap: '8px', flex: '1 1 100%', flexWrap: 'wrap' }}>
                   <input
                     type="text"
                     className="input-modal"
-                    style={{ marginBottom: 0, flex: 1, minWidth: '220px' }}
+                    style={{ marginBottom: 0, flex: '1 1 180px', width: '100%' }}
                     placeholder="🔍 Pesquisar no Banco de Dados (Nome, Código EAN, Lote...)"
                     value={buscaMasterBd}
                     onChange={(e) => setBuscaMasterBd(e.target.value)}
                   />
                   <select
                     className="input-modal"
-                    style={{ marginBottom: 0, width: 'auto', minWidth: '160px' }}
+                    style={{ marginBottom: 0, flex: '1 1 140px', width: '100%' }}
                     value={filtroMasterOrigem}
                     onChange={(e) => setFiltroMasterOrigem(e.target.value as any)}
                   >
@@ -3342,7 +3087,7 @@ export default function App() {
 
                 <button
                   className="btn-acao-rel"
-                  style={{ background: 'var(--primario)', color: '#fff', padding: '10px 16px', fontWeight: 600, fontSize: '0.88rem' }}
+                  style={{ background: 'var(--primario)', color: '#fff', padding: '10px 16px', minHeight: '44px', fontWeight: 600, fontSize: '0.88rem', width: '100%' }}
                   onClick={() => {
                     setModalSupermercadoVisivel(false);
                     abrirCadastro();
