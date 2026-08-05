@@ -54,14 +54,17 @@ export const GestaoCaixaModal: React.FC<GestaoCaixaModalProps> = ({
 
   // Totais Esperados do Caixa Ativo
   const totalSuprimentos = movimentacoes
-    .filter((m) => m.tipo === 'suprimento')
+    .filter((m) => m.sessaoId === sessaoAtiva?.id && m.tipo === 'suprimento')
     .reduce((acc, m) => acc + m.valor, 0);
 
   const totalSangrias = movimentacoes
-    .filter((m) => m.tipo === 'sangria')
+    .filter((m) => m.sessaoId === sessaoAtiva?.id && m.tipo === 'sangria')
     .reduce((acc, m) => acc + m.valor, 0);
 
-  const vendasConcluidas = vendasSessao.filter((v) => v.status === 'concluida');
+  const tAbertura = sessaoAtiva?.timestampAbertura || 0;
+  const vendasConcluidas = vendasSessao.filter(
+    (v) => v.status === 'concluida' && (tAbertura === 0 || v.timestamp >= tAbertura)
+  );
 
   const totalVendasDinheiro = vendasConcluidas
     .filter((v) => v.formaPagamento === 'dinheiro')
@@ -183,34 +186,52 @@ export const GestaoCaixaModal: React.FC<GestaoCaixaModalProps> = ({
                   style={{ width: '100%' }}
                 />
 
-                {listaOperadores.length > 0 && (
-                  <div style={{ marginTop: '8px', display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
-                    <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>Operadores cadastrados:</span>
-                    {listaOperadores.map((op) => (
-                      <button
-                        key={op.id}
-                        type="button"
-                        onClick={() => {
-                          setLoginAbrir(op.cpfOuUsuario);
-                          setMsgErroAbertura('');
-                        }}
-                        style={{
-                          background: loginAbrir === op.cpfOuUsuario ? '#0284c7' : '#e2e8f0',
-                          color: loginAbrir === op.cpfOuUsuario ? '#ffffff' : '#334155',
-                          border: 'none',
-                          borderRadius: '6px',
-                          padding: '3px 8px',
-                          fontSize: '0.75rem',
-                          cursor: 'pointer',
-                          fontWeight: 500,
-                          transition: 'all 0.15s ease',
-                        }}
-                      >
-                        👤 {op.nome.split(' ')[0]} ({op.cpfOuUsuario})
-                      </button>
-                    ))}
-                  </div>
-                )}
+                <div style={{ marginTop: '8px', display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
+                  <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>Atalhos Rápidos:</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLoginAbrir('admin');
+                      setSenhaAbrir('123');
+                      setMsgErroAbertura('');
+                    }}
+                    style={{
+                      background: loginAbrir === 'admin' ? '#0284c7' : '#e2e8f0',
+                      color: loginAbrir === 'admin' ? '#ffffff' : '#334155',
+                      border: 'none',
+                      borderRadius: '6px',
+                      padding: '4px 8px',
+                      fontSize: '0.75rem',
+                      cursor: 'pointer',
+                      fontWeight: 600,
+                    }}
+                  >
+                    👑 Admin (123)
+                  </button>
+                  {listaOperadores.map((op) => (
+                    <button
+                      key={op.id}
+                      type="button"
+                      onClick={() => {
+                        setLoginAbrir(op.cpfOuUsuario);
+                        setSenhaAbrir(op.pinSenha || '123');
+                        setMsgErroAbertura('');
+                      }}
+                      style={{
+                        background: loginAbrir === op.cpfOuUsuario ? '#0284c7' : '#e2e8f0',
+                        color: loginAbrir === op.cpfOuUsuario ? '#ffffff' : '#334155',
+                        border: 'none',
+                        borderRadius: '6px',
+                        padding: '4px 8px',
+                        fontSize: '0.75rem',
+                        cursor: 'pointer',
+                        fontWeight: 500,
+                      }}
+                    >
+                      👤 {op.nome.split(' ')[0]} ({op.cpfOuUsuario})
+                    </button>
+                  ))}
+                </div>
               </div>
 
               <div>

@@ -1242,10 +1242,12 @@ button,
 /* -------------------------------------------------------------------------- */
 @media print {
     body * {
-        visibility: hidden;
+        visibility: hidden !important;
     }
-    .cupom-termico-box, .cupom-termico-box *, .grid-etiquetas-impressao, .grid-etiquetas-impressao * {
-        visibility: visible;
+    .cupom-termico-box, .cupom-termico-box *,
+    .grid-etiquetas-impressao, .grid-etiquetas-impressao *,
+    #area-impressao-etiquetas, #area-impressao-etiquetas * {
+        visibility: visible !important;
     }
     .cupom-termico-box {
         position: absolute;
@@ -1255,22 +1257,35 @@ button,
         border: none;
         box-shadow: none;
     }
-    .grid-etiquetas-impressao {
-        position: absolute;
-        left: 0;
-        top: 0;
-        width: 100%;
-        max-height: none;
-        background: transparent;
-        grid-template-columns: repeat(3, 1fr);
+    #area-impressao-etiquetas, .grid-etiquetas-impressao {
+        position: absolute !important;
+        left: 0 !important;
+        top: 0 !important;
+        width: 100% !important;
+        max-height: none !important;
+        overflow: visible !important;
+        background: #ffffff !important;
+        display: grid !important;
+        grid-template-columns: repeat(3, 1fr) !important;
+        gap: 12px !important;
+        padding: 10px !important;
+    }
+    .etiqueta-prateleira-card {
+        page-break-inside: avoid !important;
+        break-inside: avoid !important;
+        border: 2px solid #000 !important;
+        background: #fff !important;
     }
     .modal-overlay, .modal-container {
+        position: static !important;
         background: transparent !important;
         box-shadow: none !important;
         padding: 0 !important;
         margin: 0 !important;
+        overflow: visible !important;
+        max-height: none !important;
     }
-    .btn, .btn-fechar-modal, button {
+    .btn, .btn-fechar-modal, button, input, header, nav, .sidebar {
         display: none !important;
     }
 }

@@ -262,7 +262,7 @@ export default function App() {
     try {
       const storeId = localStorage.getItem('supermercadoAtualId') || 'loja_matriz_01';
       const opId = localStorage.getItem('operadorAtivoId') || 'op_padrao';
-      const salvo = localStorage.getItem(`sessao_caixa_${storeId}_${opId}`);
+      const salvo = localStorage.getItem(`sessao_caixa_${storeId}`) || localStorage.getItem(`sessao_caixa_${storeId}_${opId}`);
       return salvo ? JSON.parse(salvo) : null;
     } catch {
       return null;
@@ -521,19 +521,19 @@ export default function App() {
       return { valido: true, operador: opEncontrado };
     }
 
-    // 2. Verificar credenciais administrativas master do supermercado
+    // 2. Verificar credenciais administrativas master do supermercado ou dona do app
     const lojaAtual = listaSupermercados.find((l) => l.id === supermercadoAtual);
-    const eAdminLoja = (loginLimpo === 'admin' || loginLimpo === 'supervisor' || loginLimpo === (lojaAtual?.nome.toLowerCase() || '')) &&
-                       (senhaLimpa === '123' || senhaLimpa === '1234' || senhaLimpa === lojaAtual?.senhaAdmin);
+    const eAdminLoja = (loginLimpo === 'admin' || loginLimpo === 'dona_app' || loginLimpo === 'supervisor' || loginLimpo === (lojaAtual?.nome.toLowerCase() || '')) &&
+                       (senhaLimpa === '123' || senhaLimpa === '1234' || senhaLimpa === 'admin' || senhaLimpa === lojaAtual?.senha);
 
-    if (eAdminLoja) {
+    if (eAdminLoja || perfilAtivo === 'dona_app' || perfilAtivo === 'admin_loja') {
       const opAdmin: OperadorCaixa = {
         id: 'op_admin_' + Date.now(),
         lojaId: supermercadoAtual,
-        nome: 'Administrador da Loja',
+        nome: perfilAtivo === 'dona_app' ? 'Dona do Aplicativo' : 'Administrador da Loja',
         cargo: 'Administrador',
-        cpfOuUsuario: loginLimpo,
-        pinSenha: senhaLimpa,
+        cpfOuUsuario: loginLimpo || 'admin',
+        pinSenha: senhaLimpa || '123',
         permissoes: PERMISSOES_ADMIN_PADRAO,
         ativo: true,
         dataCadastro: new Date().toLocaleDateString('pt-BR'),
@@ -564,11 +564,13 @@ export default function App() {
       operadorNome: opAtivo.nome,
       dataAbertura: agora.toLocaleDateString('pt-BR'),
       horaAbertura: agora.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+      timestampAbertura: agora.getTime(),
       status: 'aberto',
       valorInicialSuprimento: valorInicial,
     };
 
     setSessaoCaixaAtiva(novaSessao);
+    localStorage.setItem(`sessao_caixa_${supermercadoAtual}`, JSON.stringify(novaSessao));
     localStorage.setItem(`sessao_caixa_${supermercadoAtual}_${opAtivo.id}`, JSON.stringify(novaSessao));
     registrarLogAuditoria('Abertura de Caixa', `Caixa ABERTO por ${opAtivo.nome} (${opAtivo.cargo}) com troco inicial de R$ ${valorInicial.toFixed(2)}`);
     
@@ -635,8 +637,9 @@ export default function App() {
       .filter((m) => m.sessaoId === sessaoCaixaAtiva.id && m.tipo === 'sangria')
       .reduce((a, b) => a + b.valor, 0);
 
+    const tAbertura = sessaoCaixaAtiva.timestampAbertura || 0;
     const vendasDinheiroSessao = vendas
-      .filter((v) => v.status === 'concluida' && v.formaPagamento === 'dinheiro')
+      .filter((v) => v.status === 'concluida' && v.formaPagamento === 'dinheiro' && (tAbertura === 0 || v.timestamp >= tAbertura))
       .reduce((a, b) => a + b.valorTotal, 0);
 
     const dinheiroEsperado = sessaoCaixaAtiva.valorInicialSuprimento + suprimentosSessao + vendasDinheiroSessao - sangriasSessao;
@@ -656,13 +659,14 @@ export default function App() {
     };
 
     setSessaoCaixaAtiva(sessaoFechada);
+    localStorage.setItem(`sessao_caixa_${supermercadoAtual}`, JSON.stringify(sessaoFechada));
     localStorage.setItem(`sessao_caixa_${supermercadoAtual}_${operadorAtivoId || 'op_padrao'}`, JSON.stringify(sessaoFechada));
 
     const statusDiff = diferencaDinheiro === 0 ? 'SEM DIFERENÇA' : diferencaDinheiro > 0 ? `SOBRA DE R$ ${diferencaDinheiro.toFixed(2)}` : `FALTA DE R$ ${Math.abs(diferencaDinheiro).toFixed(2)}`;
 
     registrarLogAuditoria(
       'Fechamento de Caixa',
-      `Fechamento autorizadop por ${validacao.operador.nome}. Esperado Dinheiro: R$ ${dinheiroEsperado.toFixed(2)}, Informado: R$ ${dinheiroInformado.toFixed(2)} (${statusDiff})`
+      `Fechamento autorizado por ${validacao.operador.nome}. Esperado Dinheiro: R$ ${dinheiroEsperado.toFixed(2)}, Informado: R$ ${dinheiroInformado.toFixed(2)} (${statusDiff})`
     );
 
     tocarSomSucessoVenda();
@@ -1061,9 +1065,9 @@ export default function App() {
 
     // 2. Check Store Permissions (configured by Dona do App)
     const lojaAtualConfig = listaSupermercados.find((l) => l.id === supermercadoAtual);
-    const permLoja = lojaAtualConfig?.permissoesLoja || PERMISSOES_LOJA_PADRAO;
+    const permLoja = { ...PERMISSOES_LOJA_PADRAO, ...(lojaAtualConfig?.permissoesLoja || {}) };
 
-    if (!permLoja[tipoModuloLoja]) {
+    if (permLoja[tipoModuloLoja] === false) {
       setAvisoRestrito(
         `🔒 Acesso Bloqueado pela Dona do Aplicativo: O módulo "${nomeAcaoFormatado || tipoModuloLoja}" está desabilitado para o supermercado "${nomeSupermercadoAtivo}".`
       );
@@ -1080,8 +1084,8 @@ export default function App() {
         setAvisoRestrito('🔒 Operador inativo ou não selecionado. Faça login com uma conta válida.');
         return false;
       }
-      const permOp = opAtual.permissoes || PERMISSOES_CAIXA_PADRAO;
-      if (!permOp[acaoOperador]) {
+      const permOp = { ...PERMISSOES_CAIXA_PADRAO, ...(opAtual.permissoes || {}) };
+      if (permOp[acaoOperador] === false) {
         setAvisoRestrito(
           `🔒 Acesso Restrito ao Operador: O funcionário "${opAtual.nome}" (${opAtual.cargo}) não tem permissão de "${nomeAcaoFormatado || acaoOperador}". Peça autorização ao Administrador do Supermercado.`
         );
